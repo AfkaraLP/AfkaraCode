@@ -21,3 +21,4 @@ regex = "1"
 mlua = { version = "0.9", features = ["lua54", "serialize", "vendored"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
 crossterm = "0.27"
+async-trait = "0.1.89"

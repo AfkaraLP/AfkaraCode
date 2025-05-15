@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use async_trait::async_trait;
 use mlua::{
     Error as LuaError, Function, Lua, LuaSerdeExt, Result as LuaResult, Table, Value as LuaValue,
 };
@@ -51,6 +52,7 @@ impl LuaTool {
     }
 }
 
+#[async_trait]
 impl ToolCallFn for LuaTool {
     fn get_timeout_wait(&self) -> std::time::Duration {
         Duration::ZERO
@@ -68,10 +70,7 @@ impl ToolCallFn for LuaTool {
         Box::leak(self.name.clone().into_boxed_str())
     }
 
-    fn invoke<'invocation>(
-        &'invocation self,
-        args: &'invocation serde_json::Value,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + 'invocation>> {
+    async fn invoke(&self, args: &serde_json::Value) -> String {
         #[allow(clippy::unused_async)]
         async fn run_tool(tool: &LuaTool, args: &JsonValue) -> String {
             match run_lua(tool, args) {
@@ -79,7 +78,7 @@ impl ToolCallFn for LuaTool {
                 Err(e) => format!("lua tool error: {e}"),
             }
         }
-        Box::pin(run_tool(self, args))
+        run_tool(self, args).await
     }
 }
 

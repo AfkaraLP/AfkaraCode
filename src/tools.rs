@@ -1,7 +1,8 @@
 use std::{path::Path, process::Command, time::Duration};
 
+use async_trait::async_trait;
 use colored::Colorize;
-use openai_client::{IntoPinBox, ToolCallArgDescriptor, ToolCallFn};
+use openai_client::{ToolCallArgDescriptor, ToolCallFn};
 use serde_json::Value;
 use similar::{ChangeTag, TextDiff};
 use syntect::{
@@ -23,6 +24,7 @@ pub struct ListDirectoryContents;
 pub struct MakeDirectory;
 pub struct BashExec;
 
+#[async_trait]
 impl ToolCallFn for EditFile {
     fn get_timeout_wait(&self) -> std::time::Duration {
         Duration::ZERO
@@ -32,8 +34,7 @@ impl ToolCallFn for EditFile {
             ToolCallArgDescriptor::string("path", "relative path of the file to edit"),
             ToolCallArgDescriptor::string("old", "exact text to replace (must exist)")
                 .set_required(),
-            ToolCallArgDescriptor::string("new", "replacement text")
-                .set_required(),
+            ToolCallArgDescriptor::string("new", "replacement text").set_required(),
         ]
     }
 
@@ -45,18 +46,15 @@ impl ToolCallFn for EditFile {
         "edit_file"
     }
 
-    fn invoke<'invocation>(
-        &'invocation self,
-        args: &'invocation serde_json::Value,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + 'invocation>> {
+    async fn invoke(&self, args: &serde_json::Value) -> String {
         let Some(Value::String(path)) = args.get("path") else {
-            return "please provide a path".into_pin_box();
+            return "please provide a path".to_string();
         };
         let Some(Value::String(old)) = args.get("old") else {
-            return "please provide the old snippet that should be replaced.".into_pin_box();
+            return "please provide the old snippet that should be replaced.".to_string();
         };
         let Some(Value::String(new)) = args.get("new") else {
-            return "please provide a new snippet to be inserted in the file".into_pin_box();
+            return "please provide a new snippet to be inserted in the file".to_string();
         };
 
         println!(
@@ -116,11 +114,11 @@ impl ToolCallFn for EditFile {
                     println!("{} {}", "formatter error:".bold().red(), e);
                 }
                 println!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
-                v.into_pin_box()
+                v.to_string()
             }
             Err(e) => {
                 println!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
-                e.into_pin_box()
+                e.to_string()
             }
         }
     }
@@ -194,6 +192,7 @@ fn default_formatter_for_ext(ext: &str) -> Option<String> {
     }
 }
 
+#[async_trait]
 impl ToolCallFn for ReadFile {
     fn get_timeout_wait(&self) -> std::time::Duration {
         Duration::ZERO
@@ -203,8 +202,11 @@ impl ToolCallFn for ReadFile {
             ToolCallArgDescriptor::string("path", "relative path to read"),
             ToolCallArgDescriptor::number("offset", "optional byte offset to start (default 0)")
                 .set_optional(),
-            ToolCallArgDescriptor::number("length", "optional max bytes to read (to EOF if omitted)")
-                .set_optional(),
+            ToolCallArgDescriptor::number(
+                "length",
+                "optional max bytes to read (to EOF if omitted)",
+            )
+            .set_optional(),
         ]
     }
 
@@ -216,12 +218,9 @@ impl ToolCallFn for ReadFile {
         "read_file"
     }
 
-    fn invoke<'invocation>(
-        &'invocation self,
-        args: &'invocation serde_json::Value,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + 'invocation>> {
+    async fn invoke(&self, args: &serde_json::Value) -> String {
         let Some(Value::String(path)) = args.get("path") else {
-            return "please provide a path".into_pin_box();
+            return "please provide a path".to_string();
         };
         let offset: Option<u64> = args.get("offset").and_then(serde_json::Value::as_u64);
         let length: Option<usize> = args
@@ -236,15 +235,16 @@ impl ToolCallFn for ReadFile {
                 format!(
                     "read file path: {path} (offset={offset:?}, length={length:?}, bytes_read={bytes})"
                 )
-                .into_pin_box()
+                .to_string()
             }
             Err(e) => {
                 println!("failed reading file: {e}");
-                e.into_pin_box()
+                e.to_string()
             }
         }
     }
 }
+#[async_trait]
 impl ToolCallFn for CreateFile {
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> {
         vec![
@@ -264,15 +264,12 @@ impl ToolCallFn for CreateFile {
     fn get_timeout_wait(&self) -> std::time::Duration {
         Duration::ZERO
     }
-    fn invoke<'invocation>(
-        &'invocation self,
-        args: &'invocation serde_json::Value,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + 'invocation>> {
+    async fn invoke(&self, args: &serde_json::Value) -> String {
         let Some(Value::String(path)) = args.get("path") else {
-            return "please provide a path".into_pin_box();
+            return "please provide a path".to_string();
         };
         let Some(Value::String(content)) = args.get("content") else {
-            return "please provide content".into_pin_box();
+            return "please provide content".to_string();
         };
         println!(
             "{} {} {}",
@@ -287,11 +284,11 @@ impl ToolCallFn for CreateFile {
                     println!("{} {}", "formatter error:".bold().red(), e);
                 }
                 println!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
-                v.into_pin_box()
+                v.to_string()
             }
             Err(e) => {
                 println!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
-                e.into_pin_box()
+                e.to_string()
             }
         }
     }
@@ -395,18 +392,14 @@ async fn run_bash_command(
     }
 }
 
+#[async_trait]
 impl ToolCallFn for BashExec {
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> {
         vec![
-            ToolCallArgDescriptor::string("cmd", "shell command to run")
-                .set_required(),
-            ToolCallArgDescriptor::string("cwd", "working directory (optional)")
+            ToolCallArgDescriptor::string("cmd", "shell command to run").set_required(),
+            ToolCallArgDescriptor::string("cwd", "working directory (optional)").set_optional(),
+            ToolCallArgDescriptor::string("timeout_ms", "timeout in milliseconds (default 60000)")
                 .set_optional(),
-            ToolCallArgDescriptor::string(
-                "timeout_ms",
-                "timeout in milliseconds (default 60000)",
-            )
-            .set_optional(),
             ToolCallArgDescriptor::string(
                 "filter_for",
                 "regex: only include matching lines from stdout/stderr (optional)",
@@ -432,12 +425,9 @@ impl ToolCallFn for BashExec {
         std::time::Duration::ZERO
     }
 
-    fn invoke<'invocation>(
-        &'invocation self,
-        args: &'invocation serde_json::Value,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + 'invocation>> {
+    async fn invoke(&self, args: &serde_json::Value) -> String {
         let Some(Value::String(cmd)) = args.get("cmd") else {
-            return "please provide a cmd".into_pin_box();
+            return "please provide a cmd".to_string();
         };
         let cwd = args
             .get("cwd")
@@ -471,15 +461,10 @@ impl ToolCallFn for BashExec {
             format!("{cwd:?}").italic().blue()
         );
 
-        Box::pin(run_bash_command(
-            cmd.clone(),
-            cwd,
-            timeout_ms,
-            filter_for,
-            filter_out,
-        ))
+        run_bash_command(cmd.clone(), cwd, timeout_ms, filter_for, filter_out).await
     }
 }
+#[async_trait]
 impl ToolCallFn for ListDirectoryContents {
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> {
         vec![ToolCallArgDescriptor::string(
@@ -499,12 +484,9 @@ impl ToolCallFn for ListDirectoryContents {
     fn get_timeout_wait(&self) -> std::time::Duration {
         Duration::ZERO
     }
-    fn invoke<'invocation>(
-        &'invocation self,
-        args: &'invocation serde_json::Value,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + 'invocation>> {
+    async fn invoke(&self, args: &serde_json::Value) -> String {
         let Some(Value::String(path)) = args.get("path") else {
-            return "please provide a path".into_pin_box();
+            return "please provide a path".to_string();
         };
         println!(
             "{} {} {}",
@@ -519,16 +501,17 @@ impl ToolCallFn for ListDirectoryContents {
                     "✔".green(),
                     "successfully listed dir contents".truecolor(102, 187, 106)
                 );
-                v.into_pin_box()
+                v.to_string()
             }
             Err(e) => {
                 println!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
-                e.into_pin_box()
+                e.to_string()
             }
         }
     }
 }
 
+#[async_trait]
 impl ToolCallFn for MakeDirectory {
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> {
         vec![ToolCallArgDescriptor::string(
@@ -549,12 +532,9 @@ impl ToolCallFn for MakeDirectory {
         Duration::ZERO
     }
 
-    fn invoke<'invocation>(
-        &'invocation self,
-        args: &'invocation serde_json::Value,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + 'invocation>> {
+    async fn invoke(&self, args: &serde_json::Value) -> String {
         let Some(Value::String(path)) = args.get("path") else {
-            return "please provide a path".into_pin_box();
+            return "please provide a path".to_string();
         };
         println!(
             "{} {} {}",
@@ -569,11 +549,11 @@ impl ToolCallFn for MakeDirectory {
                     println!("{} {}", "formatter error:".bold().red(), e);
                 }
                 println!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
-                v.into_pin_box()
+                v.to_string()
             }
             Err(e) => {
                 println!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
-                e.into_pin_box()
+                e.to_string()
             }
         }
     }
