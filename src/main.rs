@@ -11,6 +11,7 @@ async fn main() {
     let tools = ToolMap::new()
         .register_tool(EditFile)
         .register_tool(ReadFile)
+        .register_tool(CreateFile)
         .register_tool(ListDirectoryContents);
     let client = OpenAIClient::new(
         "http://localhost:1234/v1",
@@ -39,6 +40,7 @@ async fn main() {
 
 pub struct EditFile;
 pub struct ReadFile;
+pub struct CreateFile;
 pub struct ListDirectoryContents;
 
 impl ToolCallFn for EditFile {
@@ -127,6 +129,51 @@ impl ToolCallFn for ReadFile {
         }
     }
 }
+impl ToolCallFn for CreateFile {
+    fn get_args(&self) -> Vec<openai_client::ToolCallArgDescriptor> {
+        vec![
+            ToolCallArgDescriptor::string("path", "the relative path of the file to create."),
+            ToolCallArgDescriptor::string(
+                "content",
+                "the content to write to the file.",
+            ),
+        ]
+    }
+
+    fn get_description(&self) -> &'static str {
+        "create a new file with the given content at the given path."
+    }
+
+    fn get_name(&self) -> &'static str {
+        "create_file"
+    }
+
+    fn get_timeout_wait(&self) -> std::time::Duration {
+        Duration::ZERO
+    }
+    fn invoke<'invocation>(
+        &'invocation self,
+        args: &'invocation serde_json::Value,
+    ) -> std::pin::Pin<Box<dyn Future<Output = String> + Send + 'invocation>> {
+        let Some(Value::String(path)) = args.get("path") else {
+            return "please provide a path".into_pin_box();
+        };
+        let Some(Value::String(content)) = args.get("content") else {
+            return "please provide content".into_pin_box();
+        };
+        eprintln!("creating file at path: {path}");
+        match create_file(path.to_string(), content.to_string()) {
+            Ok(v) => {
+                eprintln!("successfully created file: {v}");
+                v.into_pin_box()
+            }
+            Err(e) => {
+                eprintln!("failed creating file: {e}");
+                e.into_pin_box()
+            }
+        }
+    }
+}
 impl ToolCallFn for ListDirectoryContents {
     fn get_args(&self) -> Vec<openai_client::ToolCallArgDescriptor> {
         vec![ToolCallArgDescriptor::string(
@@ -199,18 +246,29 @@ pub fn read_file(path: String) -> Result<String, &'static str> {
     std::fs::read_to_string(path).map_err(|_| "failed reading file.")
 }
 
+pub fn create_file(path: String, content: String) -> Result<String, &'static str> {
+    std::fs::write(path, content).map_err(|_| "failed to create file")?;
+    Ok("successfully created file".to_string())
+}
+
 pub fn list_directory_contents(path: String) -> Result<String, &'static str> {
+    use std::fmt::Write;
     Ok(std::fs::read_dir(path)
         .map_err(|_| "failed to read directory contents.")?
         .into_iter()
         .fold(String::new(), |mut acc, entry| {
             match entry {
-                Ok(v) => acc.push_str(
-                    v.file_name()
-                        .to_str()
-                        .unwrap_or("unknown error reading this entry."),
-                ),
-                Err(_) => acc.push_str("unknown error reading this entry."),
+                Ok(v) => {
+                    _ = writeln!(
+                        &mut acc,
+                        "{}",
+                        v.file_name()
+                            .to_str()
+                            .unwrap_or("unknown error reading this entry.")
+                    );
+                }
+
+                Err(_) => acc.push_str("unknown error reading this entry.\n"),
             };
             acc
         }))
