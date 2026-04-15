@@ -1,23 +1,56 @@
 use std::{
     io::{Read, Write},
+    sync::LazyLock,
     time::Duration,
 };
 
-use openai_client::{IntoPinBox, OpenAIClient, ToolCallArgDescriptor, ToolCallFn, ToolMap};
+use openai_client::{
+    IntoPinBox, OpenAIAuth, OpenAIClient, ToolCallArgDescriptor, ToolCallFn, ToolMap,
+};
 use serde_json::Value;
+
+#[must_use]
+#[inline]
+pub fn openai_auth_from_string(string: String) -> Option<OpenAIAuth> {
+    if string.contains('|') {
+        return string.split_once('|').map(|(k, v)| OpenAIAuth::ApiKey {
+            key: k.to_string(),
+            value: v.to_string(),
+        });
+    }
+    Some(OpenAIAuth::BearerToken(string))
+}
+
+pub struct EnvVars {
+    pub api_key: Option<OpenAIAuth>,
+    pub v1_endpoint: String,
+}
+
+pub static ENV_VARS: LazyLock<EnvVars> = LazyLock::new(|| {
+    let api_key: Option<OpenAIAuth> = dotenvy::var("API_KEY")
+        .ok()
+        .and_then(openai_auth_from_string);
+    let v1_endpoint = dotenvy::var("V1_ENDPOINT").expect("Please provied a v1 endpoint in .env");
+    EnvVars {
+        api_key,
+        v1_endpoint,
+    }
+});
 
 #[tokio::main]
 async fn main() {
+    let model_name = "gpt-5";
+    let endpoint = &ENV_VARS.v1_endpoint;
+    let api_key: Option<OpenAIAuth> = ENV_VARS.api_key.clone();
+
     let tools = ToolMap::new()
         .register_tool(EditFile)
         .register_tool(ReadFile)
         .register_tool(CreateFile)
         .register_tool(ListDirectoryContents);
-    let client = OpenAIClient::new(
-        "http://localhost:1234/v1",
-        "nvidia/nemotron-3-nano-4b",
-        None,
-    );
+
+    let client = OpenAIClient::new(endpoint, model_name, api_key);
+
     loop {
         let mut prompt = String::new();
         print!("AfkaraCode> ");
@@ -117,7 +150,7 @@ impl ToolCallFn for ReadFile {
             return "please provide a path".into_pin_box();
         };
         eprintln!("reading file at path: {path}");
-        match read_file(path.to_string()) {
+        match read_file(path.clone()) {
             Ok(v) => {
                 eprintln!("successfully read file: {v}");
                 v.into_pin_box()
@@ -133,10 +166,7 @@ impl ToolCallFn for CreateFile {
     fn get_args(&self) -> Vec<openai_client::ToolCallArgDescriptor> {
         vec![
             ToolCallArgDescriptor::string("path", "the relative path of the file to create."),
-            ToolCallArgDescriptor::string(
-                "content",
-                "the content to write to the file.",
-            ),
+            ToolCallArgDescriptor::string("content", "the content to write to the file."),
         ]
     }
 
@@ -162,7 +192,7 @@ impl ToolCallFn for CreateFile {
             return "please provide content".into_pin_box();
         };
         eprintln!("creating file at path: {path}");
-        match create_file(path.to_string(), content.to_string()) {
+        match create_file(path.clone(), content.clone()) {
             Ok(v) => {
                 eprintln!("successfully created file: {v}");
                 v.into_pin_box()
@@ -201,7 +231,7 @@ impl ToolCallFn for ListDirectoryContents {
             return "please provide a path".into_pin_box();
         };
         eprintln!("listing dir contents at path: {path}");
-        match list_directory_contents(path.to_string()) {
+        match list_directory_contents(path.clone()) {
             Ok(v) => {
                 eprintln!("successfully listed dir contents: {v}");
                 v.into_pin_box()
@@ -214,6 +244,10 @@ impl ToolCallFn for ListDirectoryContents {
     }
 }
 
+/// # Errors
+///
+/// - Old string not found in file.
+/// - File cannot be opened.
 pub fn edit_file(
     path: impl AsRef<str>,
     old: &str,
@@ -242,20 +276,28 @@ pub fn edit_file(
     Ok("successfully wrote to file")
 }
 
+/// # Errors
+///
+/// Errors if file is read protected or does not exist.
 pub fn read_file(path: String) -> Result<String, &'static str> {
     std::fs::read_to_string(path).map_err(|_| "failed reading file.")
 }
 
+/// # Errors
+///
+/// Can error if the directory we're trying to create the file in is write protected.
 pub fn create_file(path: String, content: String) -> Result<String, &'static str> {
     std::fs::write(path, content).map_err(|_| "failed to create file")?;
     Ok("successfully created file".to_string())
 }
 
+/// # Errors
+///
+/// Can error if the directory cannot be read from or does not exist.
 pub fn list_directory_contents(path: String) -> Result<String, &'static str> {
     use std::fmt::Write;
     Ok(std::fs::read_dir(path)
         .map_err(|_| "failed to read directory contents.")?
-        .into_iter()
         .fold(String::new(), |mut acc, entry| {
             match entry {
                 Ok(v) => {
@@ -269,7 +311,7 @@ pub fn list_directory_contents(path: String) -> Result<String, &'static str> {
                 }
 
                 Err(_) => acc.push_str("unknown error reading this entry.\n"),
-            };
+            }
             acc
         }))
 }
