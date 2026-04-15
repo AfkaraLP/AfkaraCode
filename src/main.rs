@@ -131,12 +131,10 @@ impl ToolCallFn for EditFile {
         };
 
         eprintln!(
-            "{} {}\n{} {}\n{} {}\n{} {}",
+            "{} {}\n{} {}",
             "[tool]".bold().truecolor(255, 193, 7),
             "edit_file".bold().truecolor(0, 188, 212),
-            "Path:".bold().green(), path,
-            "Old:".bold().yellow(), old,
-            "New:".bold().cyan(), new
+            "Path:".bold().green(), path
         );
 
         // Show a colored diff preview between old and new snippets
