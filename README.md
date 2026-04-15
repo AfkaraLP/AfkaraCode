@@ -3,6 +3,8 @@
 > [!NOTE]
 > This readme was created with the agent. Claude code -- rather crap code -- I'm coming for your money!!!
 
+*Hash of the first commit done solely by the agent:* `0d293b9`
+
 ## Overview
 
 afkaracode is a Rust-based AI coding assistant that provides an interactive command-line interface for working with files using function calling. It leverages OpenAI's function calling system to execute custom tools that allow you to:
