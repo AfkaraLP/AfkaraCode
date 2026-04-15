@@ -9,6 +9,7 @@ use openai_client::{
     IntoPinBox, OpenAIAuth, OpenAIClient, ToolCallArgDescriptor, ToolCallFn, ToolMap,
 };
 use serde_json::Value;
+use similar::{ChangeTag, TextDiff};
 
 #[must_use]
 #[inline]
@@ -137,6 +138,21 @@ impl ToolCallFn for EditFile {
             "Old:".bold().yellow(), old,
             "New:".bold().cyan(), new
         );
+
+        // Show a colored diff preview between old and new snippets
+        let diff = TextDiff::from_lines(old, new);
+        eprintln!("{}", "Diff:".bold().truecolor(255, 215, 0));
+        for op in diff.ops() {
+            for change in diff.iter_changes(op) {
+                match change.tag() {
+                    ChangeTag::Delete => eprint!("{}", format!("-{}", change).red()),
+                    ChangeTag::Insert => eprint!("{}", format!("+{}", change).green()),
+                    ChangeTag::Equal => eprint!(" {}", change.to_string().truecolor(150,150,150)),
+                }
+            }
+        }
+        eprintln!("");
+
         match edit_file(path.clone(), old, new) {
             Ok(v) => {
                 eprintln!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
