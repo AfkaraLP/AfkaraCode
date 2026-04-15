@@ -1,5 +1,5 @@
 use std::{
-    io::{Read, Write},
+    io::{Read, Write, Seek, SeekFrom},
     sync::LazyLock,
     time::Duration,
 };
@@ -68,7 +68,7 @@ async fn main() {
         }
         let resp = client
             .run_agent(
-                "You are a coding agent, don't edit files unless specifically instructed to",
+                "You are a coding agent. Don't edit files unless specifically instructed to. When reading files, prefer using the optional offset and length arguments on read_file to avoid reading the entire file unless necessary.",
                 prompt,
                 &tools,
             )
@@ -170,14 +170,24 @@ impl ToolCallFn for ReadFile {
         Duration::ZERO
     }
     fn get_args(&self) -> Vec<openai_client::ToolCallArgDescriptor> {
-        vec![ToolCallArgDescriptor::string(
-            "path",
-            "the relative path of the file to read.",
-        )]
+        vec![
+            ToolCallArgDescriptor::string(
+                "path",
+                "the relative path of the file to read.",
+            ),
+            ToolCallArgDescriptor::number(
+                "offset",
+                "optional byte offset to start reading from (defaults to 0)",
+            ),
+            ToolCallArgDescriptor::number(
+                "length",
+                "optional maximum number of bytes to read (reads to EOF if omitted)",
+            ),
+        ]
     }
 
     fn get_description(&self) -> &'static str {
-        "read the contents of a file. always use this to know how a file looks like before modifying it in any way shape or form."
+        "read the contents of a file with optional byte offset and length. always use this to know how a file looks like before modifying it in any way shape or form."
     }
 
     fn get_name(&self) -> &'static str {
@@ -191,8 +201,20 @@ impl ToolCallFn for ReadFile {
         let Some(Value::String(path)) = args.get("path") else {
             return "please provide a path".into_pin_box();
         };
-        eprintln!("reading file at path: {path}");
-        match read_file(path.clone()) {
+        let offset: Option<u64> = args
+            .get("offset")
+            .and_then(|v| v.as_f64())
+            .and_then(|f| if f.is_sign_negative() { None } else { Some(f as u64) });
+        let length: Option<usize> = args
+            .get("length")
+            .and_then(|v| v.as_f64())
+            .and_then(|f| if f.is_sign_negative() { None } else { Some(f as usize) });
+
+        eprintln!(
+            "reading file at path: {} (offset={:?}, length={:?})",
+            path, offset, length
+        );
+        match read_file_with_range(path.clone(), offset, length) {
             Ok(v) => {
                 // Only color the "file output:" label, not the file contents
                 println!("{}", "file output:".bold().truecolor(0, 188, 212));
@@ -519,6 +541,33 @@ pub fn edit_file(
 /// Errors if file is read protected or does not exist.
 pub fn read_file(path: String) -> Result<String, &'static str> {
     std::fs::read_to_string(path).map_err(|_| "failed reading file.")
+}
+
+/// Read with optional byte range.
+/// If offset is Some, seek to that position. If length is Some, read up to length bytes.
+pub fn read_file_with_range(path: String, offset: Option<u64>, length: Option<usize>) -> Result<String, &'static str> {
+    use std::fs::File;
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut file = File::open(path).map_err(|_| "failed reading file.")?;
+
+    if let Some(off) = offset {
+        file.seek(SeekFrom::Start(off)).map_err(|_| "failed seeking in file.")?;
+    }
+
+    let mut buf = Vec::new();
+
+    match length {
+        Some(len) => {
+            let mut take = file.take(len as u64);
+            take.read_to_end(&mut buf).map_err(|_| "failed reading file.")?;
+        }
+        None => {
+            file.read_to_end(&mut buf).map_err(|_| "failed reading file.")?;
+        }
+    }
+
+    String::from_utf8(buf).map_err(|_| "failed reading file.")
 }
 
 /// # Errors

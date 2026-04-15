@@ -21,7 +21,7 @@ The project demonstrates how an AI can act as a coding agent that can directly m
 - Interactive loop: type commands and get responses from the AI agent
 - File manipulation tools:
   - `edit_file`: Replace old snippet with new snippet in a file
-  - `read_file`: Read entire contents of a file
+  - `read_file`: Read file contents (with optional offset and length)
   - `create_file`: Create a new file with given content
   - `list_directory_contents`: List files and directories in a path
 
@@ -32,6 +32,7 @@ The project demonstrates how an AI can act as a coding agent that can directly m
 3. Type commands like:
    ```
    AfkaraCode> read_file README.md
+   AfkaraCode> read_file README.md offset=0 length=200
    ```
 4. The AI will execute the tool call and return results
 
