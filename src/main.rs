@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use colored::{Color, Colorize};
 use openai_client::{
     IntoPinBox, OpenAIAuth, OpenAIClient, ToolCallArgDescriptor, ToolCallFn, ToolMap,
 };
@@ -52,9 +53,12 @@ async fn main() {
 
     let client = OpenAIClient::new(endpoint, model_name, api_key);
 
+    // Fancy, colorful prompt label
+    let prompt_label = "AfkaraCode> ".bold().truecolor(255, 111, 97);
+
     loop {
         let mut prompt = String::new();
-        print!("AfkaraCode> ");
+        print!("{}", prompt_label);
         _ = std::io::stdout().flush();
         _ = std::io::stdin().read_line(&mut prompt);
         if prompt.contains("exit") {
@@ -68,7 +72,18 @@ async fn main() {
             )
             .await
             .unwrap();
-        println!("{resp}");
+
+        // Colorize the agent response in Markdown style blocks with rainbow-ish accents
+        let agent_header = "### 🤖 Agent".bold().truecolor(137, 207, 240);
+        let border = "────────────────────────────────────────────────".truecolor(80, 80, 80);
+        let resp_colored = resp
+            .replace("```", "```") // ensure code fences remain intact
+            .truecolor(220, 220, 220);
+        println!("\n{}\n{}\n{}\n{}\n",
+            agent_header,
+            border,
+            resp_colored,
+            border);
     }
 }
 
@@ -112,14 +127,21 @@ impl ToolCallFn for EditFile {
             return "please provide a new snippet to be inserted in the file".into_pin_box();
         };
 
-        eprintln!("editing file {path} with:\n{old}\nto:\n{new}");
+        eprintln!(
+            "{} {}\n{} {}\n{} {}\n{} {}",
+            "[tool]".bold().truecolor(255, 193, 7),
+            "edit_file".bold().truecolor(0, 188, 212),
+            "Path:".bold().green(), path,
+            "Old:".bold().yellow(), old,
+            "New:".bold().cyan(), new
+        );
         match edit_file(path.clone(), old, new) {
             Ok(v) => {
-                eprintln!("successfully edited file: {v}");
+                eprintln!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
                 v.into_pin_box()
             }
             Err(e) => {
-                eprintln!("failed editing file: {e}");
+                eprintln!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
                 e.into_pin_box()
             }
         }
@@ -154,7 +176,9 @@ impl ToolCallFn for ReadFile {
         eprintln!("reading file at path: {path}");
         match read_file(path.clone()) {
             Ok(v) => {
-                eprintln!("successfully read file: {v}");
+                // Only color the "file output:" label, not the file contents
+                println!("{}", "file output:".bold().truecolor(0, 188, 212));
+                println!("{}", v);
                 v.into_pin_box()
             }
             Err(e) => {
@@ -193,14 +217,19 @@ impl ToolCallFn for CreateFile {
         let Some(Value::String(content)) = args.get("content") else {
             return "please provide content".into_pin_box();
         };
-        eprintln!("creating file at path: {path}");
+        eprintln!(
+            "{} {} {}",
+            "[tool]".bold().truecolor(255, 193, 7),
+            "create_file".bold().truecolor(0, 188, 212),
+            format!("path={}", path).italic().blue(),
+        );
         match create_file(path.clone(), content.clone()) {
             Ok(v) => {
-                eprintln!("successfully created file: {v}");
+                eprintln!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
                 v.into_pin_box()
             }
             Err(e) => {
-                eprintln!("failed creating file: {e}");
+                eprintln!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
                 e.into_pin_box()
             }
         }
@@ -252,8 +281,15 @@ impl ToolCallFn for BashExec {
             .unwrap_or(60_000);
 
         eprintln!(
-            "executing bash command: '{}' cwd: {:?} timeout_ms: {}",
-            cmd, cwd, timeout_ms
+            "{} {} {} {} {} {}",
+            "[tool]".bold().truecolor(255, 193, 7),
+            "bash_exec".bold().truecolor(0, 188, 212),
+            "cmd:".bold().yellow(), cmd,
+            "cwd:".bold().yellow(), format!("{:?}", cwd).italic().blue()
+        );
+        eprintln!(
+            "{} {}",
+            "timeout_ms:".bold().yellow(), timeout_ms
         );
 
         async fn run(cmd: String, cwd: Option<String>, timeout_ms: u64) -> String {
@@ -268,11 +304,11 @@ impl ToolCallFn for BashExec {
             };
 
             if let Some(dir) = cwd.clone() {
-                eprintln!("bash_exec using working directory: {}", dir);
+                eprintln!("{} {}", "working dir:".bold().magenta(), dir);
                 command.current_dir(dir);
             }
 
-            eprintln!("bash_exec starting process...");
+            eprintln!("{}", "starting process...".bold().truecolor(121, 134, 203));
 
             let output_fut = command.output();
             let result = timeout(Duration::from_millis(timeout_ms), output_fut).await;
@@ -282,12 +318,29 @@ impl ToolCallFn for BashExec {
                     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
                     let code = output.status.code().unwrap_or(-1);
+                    let exit_color = if code == 0 { Color::Green } else { Color::Red };
                     eprintln!(
-                        "bash_exec completed: exit_code={} stdout_len={} stderr_len={}",
-                        code,
-                        stdout.len(),
-                        stderr.len()
+                        "{} {} {} {}",
+                        "completed:".bold().truecolor(76, 175, 80),
+                        format!("{} {}", "exit_code".bold().color(exit_color), code),
+                        format!("{} {}", "stdout_len:".bold().cyan(), stdout.len()).cyan(),
+                        format!("{} {}", "stderr_len:".bold().cyan(), stderr.len()).cyan(),
                     );
+                    // Pretty-print a preview of stdout/stderr with colors
+                    if !stdout.is_empty() {
+                        eprintln!("\n{}\n{}\n{}\n",
+                            "stdout:".bold().green(),
+                            stdout.clone(),
+                            "─".repeat(20).truecolor(60,60,60),
+                        );
+                    }
+                    if !stderr.is_empty() {
+                        eprintln!("\n{}\n{}\n{}\n",
+                            "stderr:".bold().red(),
+                            stderr.clone(),
+                            "─".repeat(20).truecolor(60,60,60),
+                        );
+                    }
                     serde_json::json!({
                         "exit_code": code,
                         "stdout": stdout,
@@ -296,11 +349,16 @@ impl ToolCallFn for BashExec {
                     .to_string()
                 }
                 Ok(Err(e)) => {
-                    eprintln!("bash_exec failed to execute command: {}", e);
+                    eprintln!("{} {}", "failed to execute command:".bold().red(), e);
                     "failed to execute command".to_string()
                 }
                 Err(_) => {
-                    eprintln!("bash_exec timed out after {} ms", timeout_ms);
+                    eprintln!(
+                        "{} {} {}",
+                        "timed out after".bold().red(),
+                        timeout_ms,
+                        "ms".bold().red()
+                    );
                     serde_json::json!({
                         "error": "timeout",
                         "timeout_ms": timeout_ms,
@@ -339,14 +397,19 @@ impl ToolCallFn for ListDirectoryContents {
         let Some(Value::String(path)) = args.get("path") else {
             return "please provide a path".into_pin_box();
         };
-        eprintln!("listing dir contents at path: {path}");
+        eprintln!(
+            "{} {} {}",
+            "[tool]".bold().truecolor(255, 193, 7),
+            "list_dir_contents".bold().truecolor(0, 188, 212),
+            format!("path={}", path).italic().blue(),
+        );
         match list_directory_contents(path.clone()) {
             Ok(v) => {
-                eprintln!("successfully listed dir contents: {v}");
+                eprintln!("{} {}", "✔".green(), "successfully listed dir contents".truecolor(102, 187, 106));
                 v.into_pin_box()
             }
             Err(e) => {
-                eprintln!("failed listing dir contents: {e}");
+                eprintln!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
                 e.into_pin_box()
             }
         }
