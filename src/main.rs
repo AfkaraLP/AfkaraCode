@@ -47,7 +47,8 @@ async fn main() {
         .register_tool(EditFile)
         .register_tool(ReadFile)
         .register_tool(CreateFile)
-        .register_tool(ListDirectoryContents);
+        .register_tool(ListDirectoryContents)
+        .register_tool(BashExec);
 
     let client = OpenAIClient::new(endpoint, model_name, api_key);
 
@@ -75,6 +76,7 @@ pub struct EditFile;
 pub struct ReadFile;
 pub struct CreateFile;
 pub struct ListDirectoryContents;
+pub struct BashExec;
 
 impl ToolCallFn for EditFile {
     fn get_timeout_wait(&self) -> std::time::Duration {
@@ -202,6 +204,113 @@ impl ToolCallFn for CreateFile {
                 e.into_pin_box()
             }
         }
+    }
+}
+impl ToolCallFn for BashExec {
+    fn get_args(&self) -> Vec<openai_client::ToolCallArgDescriptor> {
+        vec![
+            ToolCallArgDescriptor::string("cmd", "the exact shell command to execute"),
+            ToolCallArgDescriptor::string("cwd", "optional working directory; defaults to current"),
+            ToolCallArgDescriptor::string(
+                "timeout_ms",
+                "optional timeout in milliseconds; defaults to 60000",
+            ),
+        ]
+    }
+
+    fn get_description(&self) -> &'static str {
+        "execute an arbitrary bash command in a shell and return stdout, stderr and exit code"
+    }
+
+    fn get_name(&self) -> &'static str {
+        "bash_exec"
+    }
+
+    fn get_timeout_wait(&self) -> std::time::Duration {
+        std::time::Duration::ZERO
+    }
+
+    fn invoke<'invocation>(
+        &'invocation self,
+        args: &'invocation serde_json::Value,
+    ) -> std::pin::Pin<Box<dyn Future<Output = String> + Send + 'invocation>> {
+        use tokio::process::Command;
+        use tokio::time::{Duration, timeout};
+
+        let Some(Value::String(cmd)) = args.get("cmd") else {
+            return "please provide a cmd".into_pin_box();
+        };
+        let cwd = args
+            .get("cwd")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+        let timeout_ms = args
+            .get("timeout_ms")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(60_000);
+
+        eprintln!(
+            "executing bash command: '{}' cwd: {:?} timeout_ms: {}",
+            cmd, cwd, timeout_ms
+        );
+
+        async fn run(cmd: String, cwd: Option<String>, timeout_ms: u64) -> String {
+            let mut command = if cfg!(target_os = "windows") {
+                let mut c = Command::new("cmd");
+                c.arg("/C").arg(cmd);
+                c
+            } else {
+                let mut c = Command::new("bash");
+                c.arg("-lc").arg(cmd);
+                c
+            };
+
+            if let Some(dir) = cwd.clone() {
+                eprintln!("bash_exec using working directory: {}", dir);
+                command.current_dir(dir);
+            }
+
+            eprintln!("bash_exec starting process...");
+
+            let output_fut = command.output();
+            let result = timeout(Duration::from_millis(timeout_ms), output_fut).await;
+
+            match result {
+                Ok(Ok(output)) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                    let code = output.status.code().unwrap_or(-1);
+                    eprintln!(
+                        "bash_exec completed: exit_code={} stdout_len={} stderr_len={}",
+                        code,
+                        stdout.len(),
+                        stderr.len()
+                    );
+                    serde_json::json!({
+                        "exit_code": code,
+                        "stdout": stdout,
+                        "stderr": stderr,
+                    })
+                    .to_string()
+                }
+                Ok(Err(e)) => {
+                    eprintln!("bash_exec failed to execute command: {}", e);
+                    "failed to execute command".to_string()
+                }
+                Err(_) => {
+                    eprintln!("bash_exec timed out after {} ms", timeout_ms);
+                    serde_json::json!({
+                        "error": "timeout",
+                        "timeout_ms": timeout_ms,
+                    })
+                    .to_string()
+                }
+            }
+        }
+
+        Box::pin(run(cmd.clone(), cwd, timeout_ms))
     }
 }
 impl ToolCallFn for ListDirectoryContents {
