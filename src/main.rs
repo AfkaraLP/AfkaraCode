@@ -1,5 +1,6 @@
 use std::{
     io::{Read, Write, Seek, SeekFrom},
+    path::Path,
     sync::LazyLock,
     time::Duration,
 };
@@ -10,6 +11,12 @@ use openai_client::{
 };
 use serde_json::Value;
 use similar::{ChangeTag, TextDiff};
+use syntect::{
+    easy::HighlightLines,
+    highlighting::{Theme, ThemeSet},
+    parsing::{SyntaxReference, SyntaxSet},
+    util::{as_24_bit_terminal_escaped, LinesWithEndings},
+};
 
 #[must_use]
 #[inline]
@@ -153,6 +160,22 @@ impl ToolCallFn for EditFile {
 
         match edit_file(path.clone(), old, new) {
             Ok(v) => {
+                // Also highlight the new snippet using syntax inferred from the path
+                let ps: SyntaxSet = SyntaxSet::load_defaults_newlines();
+                let ts: ThemeSet = ThemeSet::load_defaults();
+                let theme: &Theme = ts.themes.get("base16-ocean.dark").unwrap_or_else(|| ts.themes.values().next().expect("has theme"));
+                let ext = Path::new(&path).extension().and_then(|e| e.to_str()).unwrap_or("");
+                let syntax: &SyntaxReference = ps.find_syntax_by_extension(ext)
+                    .or_else(|| ps.find_syntax_by_name("Rust"))
+                    .unwrap_or(ps.find_syntax_plain_text());
+                let mut h = HighlightLines::new(syntax, theme);
+                eprintln!("{}", "applied changes (preview):".bold().truecolor(0, 188, 212));
+                for line in LinesWithEndings::from(new) {
+                    let ranges = h.highlight_line(line, &ps).unwrap_or_else(|_| vec![(syntect::highlighting::Style::default(), line)]);
+                    let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
+                    eprint!("{}", escaped);
+                }
+                eprintln!("");
                 eprintln!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
                 v.into_pin_box()
             }
@@ -214,9 +237,25 @@ impl ToolCallFn for ReadFile {
         );
         match read_file_with_range(path.clone(), offset, length) {
             Ok(v) => {
-                // Only color the "file output:" label, not the file contents
+                // Syntax highlight based on file extension using syntect
+                let ps: SyntaxSet = SyntaxSet::load_defaults_newlines();
+                let ts: ThemeSet = ThemeSet::load_defaults();
+                let theme: &Theme = ts.themes.get("base16-ocean.dark").unwrap_or_else(|| ts.themes.values().next().expect("has theme"));
+
+                let ext = Path::new(&path).extension().and_then(|e| e.to_str()).unwrap_or("");
+                let syntax: &SyntaxReference = ps.find_syntax_by_extension(ext)
+                    .or_else(|| ps.find_syntax_by_name("Rust"))
+                    .unwrap_or(ps.find_syntax_plain_text());
+
+                let mut h = HighlightLines::new(syntax, theme);
                 println!("{}", "file output:".bold().truecolor(0, 188, 212));
-                println!("{}", v);
+                for line in LinesWithEndings::from(v.as_str()) {
+                    let ranges = h.highlight_line(line, &ps).unwrap_or_else(|_| vec![(syntect::highlighting::Style::default(), line)]);
+                    let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
+                    print!("{}", escaped);
+                }
+                // ensure a trailing newline if not present
+                if !v.ends_with('\n') { println!(); }
                 v.into_pin_box()
             }
             Err(e) => {
