@@ -48,6 +48,7 @@ async fn main() {
         .register_tool(EditFile)
         .register_tool(ReadFile)
         .register_tool(CreateFile)
+        .register_tool(MakeDirectory)
         .register_tool(ListDirectoryContents)
         .register_tool(BashExec);
 
@@ -91,6 +92,7 @@ pub struct EditFile;
 pub struct ReadFile;
 pub struct CreateFile;
 pub struct ListDirectoryContents;
+pub struct MakeDirectory;
 pub struct BashExec;
 
 impl ToolCallFn for EditFile {
@@ -416,6 +418,54 @@ impl ToolCallFn for ListDirectoryContents {
     }
 }
 
+impl ToolCallFn for MakeDirectory {
+    fn get_args(&self) -> Vec<openai_client::ToolCallArgDescriptor> {
+        vec![
+            ToolCallArgDescriptor::string(
+                "path",
+                "the absolute or relative path of the directory to create",
+            )
+        ]
+    }
+
+    fn get_description(&self) -> &'static str {
+        "create a directory at the specified path (including intermediate directories if necessary)"
+    }
+
+    fn get_name(&self) -> &'static str {
+        "make_dir"
+    }
+
+    fn get_timeout_wait(&self) -> std::time::Duration {
+        Duration::ZERO
+    }
+
+    fn invoke<'invocation>(
+        &'invocation self,
+        args: &'invocation serde_json::Value,
+    ) -> std::pin::Pin<Box<dyn Future<Output = String> + Send + 'invocation>> {
+        let Some(Value::String(path)) = args.get("path") else {
+            return "please provide a path".into_pin_box();
+        };
+        eprintln!(
+            "{} {} {}",
+            "[tool]".bold().truecolor(255, 193, 7),
+            "make_dir".bold().truecolor(0, 188, 212),
+            format!("path={}", path).italic().blue(),
+        );
+        match make_directory(path.clone()) {
+            Ok(v) => {
+                eprintln!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
+                v.into_pin_box()
+            }
+            Err(e) => {
+                eprintln!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
+                e.into_pin_box()
+            }
+        }
+    }
+}
+
 /// # Errors
 ///
 /// - Old string not found in file.
@@ -486,4 +536,11 @@ pub fn list_directory_contents(path: String) -> Result<String, &'static str> {
             }
             acc
         }))
+}
+
+/// # Errors
+/// Can error if the directory cannot be created (e.g., permission denied) or path is invalid.
+pub fn make_directory(path: String) -> Result<String, &'static str> {
+    std::fs::create_dir_all(path).map_err(|_| "failed to create directory")?;
+    Ok("successfully created directory".to_string())
 }
