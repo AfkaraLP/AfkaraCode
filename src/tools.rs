@@ -56,7 +56,7 @@ impl ToolCallFn for EditFile {
             return "please provide a new snippet to be inserted in the file".into_pin_box();
         };
 
-        eprintln!(
+        println!(
             "{} {}\n{} {}",
             "[tool]".bold().truecolor(255, 193, 7),
             "edit_file".bold().truecolor(0, 188, 212),
@@ -66,17 +66,17 @@ impl ToolCallFn for EditFile {
 
         // Show a colored diff preview between old and new snippets
         let diff = TextDiff::from_lines(old, new);
-        eprintln!("{}", "Diff:".bold().truecolor(255, 215, 0));
+        println!("{}", "Diff:".bold().truecolor(255, 215, 0));
         for op in diff.ops() {
             for change in diff.iter_changes(op) {
                 match change.tag() {
-                    ChangeTag::Delete => eprint!("{}", format!("-{change}").red()),
-                    ChangeTag::Insert => eprint!("{}", format!("+{change}").green()),
-                    ChangeTag::Equal => eprint!(" {}", change.to_string().truecolor(150, 150, 150)),
+                    ChangeTag::Delete => print!("{}", format!("-{change}").red()),
+                    ChangeTag::Insert => print!("{}", format!("+{change}").green()),
+                    ChangeTag::Equal => print!(" {}", change.to_string().truecolor(150, 150, 150)),
                 }
             }
         }
-        eprintln!();
+        println!();
 
         match edit_file(path.clone(), old, new) {
             Ok(v) => {
@@ -96,7 +96,7 @@ impl ToolCallFn for EditFile {
                     .or_else(|| ps.find_syntax_by_name("Rust"))
                     .unwrap_or_else(|| ps.find_syntax_plain_text());
                 let mut h = HighlightLines::new(syntax, theme);
-                eprintln!(
+                println!(
                     "{}",
                     "applied changes (preview):".bold().truecolor(0, 188, 212)
                 );
@@ -105,14 +105,14 @@ impl ToolCallFn for EditFile {
                         .highlight_line(line, &ps)
                         .unwrap_or_else(|_| vec![(syntect::highlighting::Style::default(), line)]);
                     let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
-                    eprint!("{escaped}");
+                    print!("{escaped}");
                 }
-                eprintln!();
-                eprintln!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
+                println!();
+                println!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
                 v.into_pin_box()
             }
             Err(e) => {
-                eprintln!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
+                println!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
                 e.into_pin_box()
             }
         }
@@ -157,7 +157,7 @@ impl ToolCallFn for ReadFile {
             .and_then(serde_json::Value::as_u64)
             .and_then(|n| usize::try_from(n).ok());
 
-        eprintln!("reading file at path: {path} (offset={offset:?}, length={length:?})");
+        println!("reading file at path: {path} (offset={offset:?}, length={length:?})");
         match read_file_with_range(path.clone(), offset, length) {
             Ok(v) => {
                 // Syntax highlight based on file extension using syntect
@@ -193,7 +193,7 @@ impl ToolCallFn for ReadFile {
                 v.into_pin_box()
             }
             Err(e) => {
-                eprintln!("failed reading file: {e}");
+                println!("failed reading file: {e}");
                 e.into_pin_box()
             }
         }
@@ -228,7 +228,7 @@ impl ToolCallFn for CreateFile {
         let Some(Value::String(content)) = args.get("content") else {
             return "please provide content".into_pin_box();
         };
-        eprintln!(
+        println!(
             "{} {} {}",
             "[tool]".bold().truecolor(255, 193, 7),
             "create_file".bold().truecolor(0, 188, 212),
@@ -236,11 +236,11 @@ impl ToolCallFn for CreateFile {
         );
         match create_file(path.clone(), content.clone()) {
             Ok(v) => {
-                eprintln!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
+                println!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
                 v.into_pin_box()
             }
             Err(e) => {
-                eprintln!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
+                println!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
                 e.into_pin_box()
             }
         }
@@ -251,11 +251,8 @@ impl ToolCallFn for BashExec {
         vec![
             ToolCallArgDescriptor::string("cmd", "the exact shell command to execute")
                 .set_required(),
-            ToolCallArgDescriptor::string(
-                "cwd",
-                "optional working directory; defaults to current",
-            )
-            .set_optional(),
+            ToolCallArgDescriptor::string("cwd", "optional working directory; defaults to current")
+                .set_optional(),
             ToolCallArgDescriptor::string(
                 "timeout_ms",
                 "optional timeout in milliseconds; defaults to 60000",
@@ -318,7 +315,7 @@ impl ToolCallFn for BashExec {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
 
-        eprintln!(
+        println!(
             "{} {} {} {} {} {}",
             "[tool]".bold().truecolor(255, 193, 7),
             "bash_exec".bold().truecolor(0, 188, 212),
@@ -327,9 +324,13 @@ impl ToolCallFn for BashExec {
             "cwd:".bold().yellow(),
             format!("{cwd:?}").italic().blue()
         );
-        eprintln!("{} {}", "timeout_ms:".bold().yellow(), timeout_ms);
-        if let Some(ff) = &filter_for { eprintln!("{} {}", "filter_for:".bold().yellow(), ff); }
-        if let Some(fo) = &filter_out { eprintln!("{} {}", "filter_out:".bold().yellow(), fo); }
+        println!("{} {}", "timeout_ms:".bold().yellow(), timeout_ms);
+        if let Some(ff) = &filter_for {
+            println!("{} {}", "filter_for:".bold().yellow(), ff);
+        }
+        if let Some(fo) = &filter_out {
+            println!("{} {}", "filter_out:".bold().yellow(), fo);
+        }
 
         #[allow(clippy::items_after_statements)]
         async fn run(
@@ -350,11 +351,11 @@ impl ToolCallFn for BashExec {
             };
 
             if let Some(dir) = cwd.clone() {
-                eprintln!("{} {}", "working dir:".bold().magenta(), dir);
+                println!("{} {}", "working dir:".bold().magenta(), dir);
                 command.current_dir(dir);
             }
 
-            eprintln!("{}", "starting process...".bold().truecolor(121, 134, 203));
+            println!("{}", "starting process...".bold().truecolor(121, 134, 203));
 
             let output_fut = command.output();
             let result = timeout(Duration::from_millis(timeout_ms), output_fut).await;
@@ -364,7 +365,7 @@ impl ToolCallFn for BashExec {
                 Some(pat) => match regex::Regex::new(&pat) {
                     Ok(r) => Some(r),
                     Err(e) => {
-                        eprintln!("{} {}", "invalid filter_for regex:".bold().red(), e);
+                        println!("{} {}", "invalid filter_for regex:".bold().red(), e);
                         None
                     }
                 },
@@ -374,14 +375,18 @@ impl ToolCallFn for BashExec {
                 Some(pat) => match regex::Regex::new(&pat) {
                     Ok(r) => Some(r),
                     Err(e) => {
-                        eprintln!("{} {}", "invalid filter_out regex:".bold().red(), e);
+                        println!("{} {}", "invalid filter_out regex:".bold().red(), e);
                         None
                     }
                 },
                 None => None,
             };
 
-            fn apply_filters(text: &str, for_re: &Option<regex::Regex>, out_re: &Option<regex::Regex>) -> String {
+            fn apply_filters(
+                text: &str,
+                for_re: &Option<regex::Regex>,
+                out_re: &Option<regex::Regex>,
+            ) -> String {
                 text.lines()
                     .filter(|line| match for_re {
                         Some(r) => r.is_match(line),
@@ -404,7 +409,7 @@ impl ToolCallFn for BashExec {
                     let stderr = apply_filters(&stderr_raw, &filter_for_re, &filter_out_re);
                     let code = output.status.code().unwrap_or(-1);
                     let exit_color = if code == 0 { Color::Green } else { Color::Red };
-                    eprintln!(
+                    println!(
                         "{} {} {} {}",
                         "completed:".bold().truecolor(76, 175, 80),
                         format_args!("{} {}", "exit_code".bold().color(exit_color), code),
@@ -413,7 +418,7 @@ impl ToolCallFn for BashExec {
                     );
                     // Pretty-print a preview of stdout/stderr with colors
                     if !stdout.is_empty() {
-                        eprintln!(
+                        println!(
                             "\n{}\n{}\n{}\n",
                             "stdout:".bold().green(),
                             stdout,
@@ -421,7 +426,7 @@ impl ToolCallFn for BashExec {
                         );
                     }
                     if !stderr.is_empty() {
-                        eprintln!(
+                        println!(
                             "\n{}\n{}\n{}\n",
                             "stderr:".bold().red(),
                             stderr,
@@ -436,11 +441,11 @@ impl ToolCallFn for BashExec {
                     .to_string()
                 }
                 Ok(Err(e)) => {
-                    eprintln!("{} {}", "failed to execute command:".bold().red(), e);
+                    println!("{} {}", "failed to execute command:".bold().red(), e);
                     "failed to execute command".to_string()
                 }
                 Err(_) => {
-                    eprintln!(
+                    println!(
                         "{} {} {}",
                         "timed out after".bold().red(),
                         timeout_ms,
@@ -484,7 +489,7 @@ impl ToolCallFn for ListDirectoryContents {
         let Some(Value::String(path)) = args.get("path") else {
             return "please provide a path".into_pin_box();
         };
-        eprintln!(
+        println!(
             "{} {} {}",
             "[tool]".bold().truecolor(255, 193, 7),
             "list_dir_contents".bold().truecolor(0, 188, 212),
@@ -492,7 +497,7 @@ impl ToolCallFn for ListDirectoryContents {
         );
         match list_directory_contents(path.clone()) {
             Ok(v) => {
-                eprintln!(
+                println!(
                     "{} {}",
                     "✔".green(),
                     "successfully listed dir contents".truecolor(102, 187, 106)
@@ -500,7 +505,7 @@ impl ToolCallFn for ListDirectoryContents {
                 v.into_pin_box()
             }
             Err(e) => {
-                eprintln!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
+                println!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
                 e.into_pin_box()
             }
         }
@@ -534,7 +539,7 @@ impl ToolCallFn for MakeDirectory {
         let Some(Value::String(path)) = args.get("path") else {
             return "please provide a path".into_pin_box();
         };
-        eprintln!(
+        println!(
             "{} {} {}",
             "[tool]".bold().truecolor(255, 193, 7),
             "make_dir".bold().truecolor(0, 188, 212),
@@ -542,11 +547,11 @@ impl ToolCallFn for MakeDirectory {
         );
         match make_directory(path.clone()) {
             Ok(v) => {
-                eprintln!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
+                println!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
                 v.into_pin_box()
             }
             Err(e) => {
-                eprintln!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
+                println!("{} {}", "✖".red(), e.truecolor(239, 83, 80));
                 e.into_pin_box()
             }
         }
