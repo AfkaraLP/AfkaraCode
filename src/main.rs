@@ -10,7 +10,9 @@ use openai_client::{OpenAIAuth, OpenAIClient, ToolMap};
 
 use crate::env::ENV_VARS;
 use crate::render::render_markdown_to_terminal;
-use crate::tools::{BashExec, CreateFile, EditFile, ListDirectoryContents, MakeDirectory, ReadFile};
+use crate::tools::{
+    BashExec, CreateFile, EditFile, ListDirectoryContents, MakeDirectory, ReadFile,
+};
 
 #[tokio::main]
 async fn main() {
@@ -33,7 +35,7 @@ async fn main() {
 
     loop {
         let mut prompt = String::new();
-        print!("{}", prompt_label);
+        print!("{prompt_label}");
         _ = std::io::stdout().flush();
         _ = std::io::stdin().read_line(&mut prompt);
         if prompt.contains("exit") {
@@ -52,10 +54,6 @@ async fn main() {
         let agent_header = "### 🤖 Agent".bold().truecolor(137, 207, 240);
         let border = "────────────────────────────────────────────────".truecolor(80, 80, 80);
         let rendered = render_markdown_to_terminal(&resp);
-        println!("\n{}\n{}\n{}\n{}\n",
-            agent_header,
-            border,
-            rendered,
-            border);
+        println!("\n{agent_header}\n{border}\n{rendered}\n{border}\n");
     }
 }

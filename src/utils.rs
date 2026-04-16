@@ -35,19 +35,25 @@ pub fn edit_file(
 /// # Errors
 ///
 /// Errors if file is read protected or does not exist.
+#[allow(dead_code)]
 pub fn read_file(path: String) -> Result<String, &'static str> {
     std::fs::read_to_string(path).map_err(|_| "failed reading file.")
 }
 
 /// Read with optional byte range.
 /// If offset is Some, seek to that position. If length is Some, read up to length bytes.
-pub fn read_file_with_range(path: String, offset: Option<u64>, length: Option<usize>) -> Result<String, &'static str> {
+pub fn read_file_with_range(
+    path: String,
+    offset: Option<u64>,
+    length: Option<usize>,
+) -> Result<String, &'static str> {
     use std::fs::File;
 
     let mut file = File::open(path).map_err(|_| "failed reading file.")?;
 
     if let Some(off) = offset {
-        file.seek(SeekFrom::Start(off)).map_err(|_| "failed seeking in file.")?;
+        file.seek(SeekFrom::Start(off))
+            .map_err(|_| "failed seeking in file.")?;
     }
 
     let mut buf = Vec::new();
@@ -55,10 +61,12 @@ pub fn read_file_with_range(path: String, offset: Option<u64>, length: Option<us
     match length {
         Some(len) => {
             let mut take = file.take(len as u64);
-            take.read_to_end(&mut buf).map_err(|_| "failed reading file.")?;
+            take.read_to_end(&mut buf)
+                .map_err(|_| "failed reading file.")?;
         }
         None => {
-            file.read_to_end(&mut buf).map_err(|_| "failed reading file.")?;
+            file.read_to_end(&mut buf)
+                .map_err(|_| "failed reading file.")?;
         }
     }
 

@@ -6,12 +6,14 @@ use serde_json::Value;
 use similar::{ChangeTag, TextDiff};
 use syntect::{
     easy::HighlightLines,
-    highlighting::{Theme, ThemeSet},
+    highlighting::ThemeSet,
     parsing::SyntaxSet,
-    util::{as_24_bit_terminal_escaped, LinesWithEndings},
+    util::{LinesWithEndings, as_24_bit_terminal_escaped},
 };
 
-use crate::utils::{create_file, edit_file, list_directory_contents, make_directory, read_file_with_range};
+use crate::utils::{
+    create_file, edit_file, list_directory_contents, make_directory, read_file_with_range,
+};
 
 pub struct EditFile;
 pub struct ReadFile;
@@ -21,7 +23,9 @@ pub struct MakeDirectory;
 pub struct BashExec;
 
 impl ToolCallFn for EditFile {
-    fn get_timeout_wait(&self) -> std::time::Duration { Duration::ZERO }
+    fn get_timeout_wait(&self) -> std::time::Duration {
+        Duration::ZERO
+    }
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> {
         vec![
             ToolCallArgDescriptor::string("path", "the relative path of the file to read."),
@@ -34,7 +38,9 @@ impl ToolCallFn for EditFile {
         "edit a file by providing what snippet of the file you want to change and what to replate it with. this uses str replace."
     }
 
-    fn get_name(&self) -> &'static str { "edit_file" }
+    fn get_name(&self) -> &'static str {
+        "edit_file"
+    }
 
     fn invoke<'invocation>(
         &'invocation self,
@@ -54,7 +60,8 @@ impl ToolCallFn for EditFile {
             "{} {}\n{} {}",
             "[tool]".bold().truecolor(255, 193, 7),
             "edit_file".bold().truecolor(0, 188, 212),
-            "Path:".bold().green(), path
+            "Path:".bold().green(),
+            path
         );
 
         // Show a colored diff preview between old and new snippets
@@ -63,32 +70,44 @@ impl ToolCallFn for EditFile {
         for op in diff.ops() {
             for change in diff.iter_changes(op) {
                 match change.tag() {
-                    ChangeTag::Delete => eprint!("{}", format!("-{}", change).red()),
-                    ChangeTag::Insert => eprint!("{}", format!("+{}", change).green()),
-                    ChangeTag::Equal => eprint!(" {}", change.to_string().truecolor(150,150,150)),
+                    ChangeTag::Delete => eprint!("{}", format!("-{change}").red()),
+                    ChangeTag::Insert => eprint!("{}", format!("+{change}").green()),
+                    ChangeTag::Equal => eprint!(" {}", change.to_string().truecolor(150, 150, 150)),
                 }
             }
         }
-        eprintln!("");
+        eprintln!();
 
         match edit_file(path.clone(), old, new) {
             Ok(v) => {
                 // Also highlight the new snippet using syntax inferred from the path
                 let ps: SyntaxSet = SyntaxSet::load_defaults_newlines();
                 let ts: ThemeSet = ThemeSet::load_defaults();
-                let theme = ts.themes.get("base16-ocean.dark").unwrap_or_else(|| ts.themes.values().next().expect("has theme"));
-                let ext = Path::new(&path).extension().and_then(|e| e.to_str()).unwrap_or("");
-                let syntax = ps.find_syntax_by_extension(ext)
+                let theme = ts
+                    .themes
+                    .get("base16-ocean.dark")
+                    .unwrap_or_else(|| ts.themes.values().next().expect("has theme"));
+                let ext = Path::new(&path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                let syntax = ps
+                    .find_syntax_by_extension(ext)
                     .or_else(|| ps.find_syntax_by_name("Rust"))
-                    .unwrap_or(ps.find_syntax_plain_text());
+                    .unwrap_or_else(|| ps.find_syntax_plain_text());
                 let mut h = HighlightLines::new(syntax, theme);
-                eprintln!("{}", "applied changes (preview):".bold().truecolor(0, 188, 212));
+                eprintln!(
+                    "{}",
+                    "applied changes (preview):".bold().truecolor(0, 188, 212)
+                );
                 for line in LinesWithEndings::from(new) {
-                    let ranges = h.highlight_line(line, &ps).unwrap_or_else(|_| vec![(syntect::highlighting::Style::default(), line)]);
+                    let ranges = h
+                        .highlight_line(line, &ps)
+                        .unwrap_or_else(|_| vec![(syntect::highlighting::Style::default(), line)]);
                     let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
-                    eprint!("{}", escaped);
+                    eprint!("{escaped}");
                 }
-                eprintln!("");
+                eprintln!();
                 eprintln!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
                 v.into_pin_box()
             }
@@ -100,13 +119,12 @@ impl ToolCallFn for EditFile {
     }
 }
 impl ToolCallFn for ReadFile {
-    fn get_timeout_wait(&self) -> std::time::Duration { Duration::ZERO }
+    fn get_timeout_wait(&self) -> std::time::Duration {
+        Duration::ZERO
+    }
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> {
         vec![
-            ToolCallArgDescriptor::string(
-                "path",
-                "the relative path of the file to read.",
-            ),
+            ToolCallArgDescriptor::string("path", "the relative path of the file to read."),
             ToolCallArgDescriptor::number(
                 "offset",
                 "optional byte offset to start reading from (defaults to 0)",
@@ -122,7 +140,9 @@ impl ToolCallFn for ReadFile {
         "read the contents of a file with optional byte offset and length. always use this to know how a file looks like before modifying it in any way shape or form."
     }
 
-    fn get_name(&self) -> &'static str { "read_file" }
+    fn get_name(&self) -> &'static str {
+        "read_file"
+    }
 
     fn invoke<'invocation>(
         &'invocation self,
@@ -131,40 +151,45 @@ impl ToolCallFn for ReadFile {
         let Some(Value::String(path)) = args.get("path") else {
             return "please provide a path".into_pin_box();
         };
-        let offset: Option<u64> = args
-            .get("offset")
-            .and_then(|v| v.as_f64())
-            .and_then(|f| if f.is_sign_negative() { None } else { Some(f as u64) });
+        let offset: Option<u64> = args.get("offset").and_then(serde_json::Value::as_u64);
         let length: Option<usize> = args
             .get("length")
-            .and_then(|v| v.as_f64())
-            .and_then(|f| if f.is_sign_negative() { None } else { Some(f as usize) });
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|n| usize::try_from(n).ok());
 
-        eprintln!(
-            "reading file at path: {} (offset={:?}, length={:?})",
-            path, offset, length
-        );
+        eprintln!("reading file at path: {path} (offset={offset:?}, length={length:?})");
         match read_file_with_range(path.clone(), offset, length) {
             Ok(v) => {
                 // Syntax highlight based on file extension using syntect
                 let ps: SyntaxSet = SyntaxSet::load_defaults_newlines();
                 let ts: ThemeSet = ThemeSet::load_defaults();
-                let theme = ts.themes.get("base16-ocean.dark").unwrap_or_else(|| ts.themes.values().next().expect("has theme"));
+                let theme = ts
+                    .themes
+                    .get("base16-ocean.dark")
+                    .unwrap_or_else(|| ts.themes.values().next().expect("has theme"));
 
-                let ext = Path::new(&path).extension().and_then(|e| e.to_str()).unwrap_or("");
-                let syntax = ps.find_syntax_by_extension(ext)
+                let ext = Path::new(&path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                let syntax = ps
+                    .find_syntax_by_extension(ext)
                     .or_else(|| ps.find_syntax_by_name("Rust"))
-                    .unwrap_or(ps.find_syntax_plain_text());
+                    .unwrap_or_else(|| ps.find_syntax_plain_text());
 
                 let mut h = HighlightLines::new(syntax, theme);
                 println!("{}", "file output:".bold().truecolor(0, 188, 212));
                 for line in LinesWithEndings::from(v.as_str()) {
-                    let ranges = h.highlight_line(line, &ps).unwrap_or_else(|_| vec![(syntect::highlighting::Style::default(), line)]);
+                    let ranges = h
+                        .highlight_line(line, &ps)
+                        .unwrap_or_else(|_| vec![(syntect::highlighting::Style::default(), line)]);
                     let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
-                    print!("{}", escaped);
+                    print!("{escaped}");
                 }
                 // ensure a trailing newline if not present
-                if !v.ends_with('\n') { println!(); }
+                if !v.ends_with('\n') {
+                    println!();
+                }
                 v.into_pin_box()
             }
             Err(e) => {
@@ -182,11 +207,17 @@ impl ToolCallFn for CreateFile {
         ]
     }
 
-    fn get_description(&self) -> &'static str { "create a new file with the given content at the given path." }
+    fn get_description(&self) -> &'static str {
+        "create a new file with the given content at the given path."
+    }
 
-    fn get_name(&self) -> &'static str { "create_file" }
+    fn get_name(&self) -> &'static str {
+        "create_file"
+    }
 
-    fn get_timeout_wait(&self) -> std::time::Duration { Duration::ZERO }
+    fn get_timeout_wait(&self) -> std::time::Duration {
+        Duration::ZERO
+    }
     fn invoke<'invocation>(
         &'invocation self,
         args: &'invocation serde_json::Value,
@@ -201,7 +232,7 @@ impl ToolCallFn for CreateFile {
             "{} {} {}",
             "[tool]".bold().truecolor(255, 193, 7),
             "create_file".bold().truecolor(0, 188, 212),
-            format!("path={}", path).italic().blue(),
+            format!("path={path}").italic().blue(),
         );
         match create_file(path.clone(), content.clone()) {
             Ok(v) => {
@@ -227,11 +258,17 @@ impl ToolCallFn for BashExec {
         ]
     }
 
-    fn get_description(&self) -> &'static str { "execute an arbitrary bash command in a shell and return stdout, stderr and exit code" }
+    fn get_description(&self) -> &'static str {
+        "execute an arbitrary bash command in a shell and return stdout, stderr and exit code"
+    }
 
-    fn get_name(&self) -> &'static str { "bash_exec" }
+    fn get_name(&self) -> &'static str {
+        "bash_exec"
+    }
 
-    fn get_timeout_wait(&self) -> std::time::Duration { std::time::Duration::ZERO }
+    fn get_timeout_wait(&self) -> std::time::Duration {
+        std::time::Duration::ZERO
+    }
 
     fn invoke<'invocation>(
         &'invocation self,
@@ -247,7 +284,7 @@ impl ToolCallFn for BashExec {
             .get("cwd")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
         let timeout_ms = args
             .get("timeout_ms")
             .and_then(|v| v.as_str())
@@ -258,14 +295,14 @@ impl ToolCallFn for BashExec {
             "{} {} {} {} {} {}",
             "[tool]".bold().truecolor(255, 193, 7),
             "bash_exec".bold().truecolor(0, 188, 212),
-            "cmd:".bold().yellow(), cmd,
-            "cwd:".bold().yellow(), format!("{:?}", cwd).italic().blue()
+            "cmd:".bold().yellow(),
+            cmd,
+            "cwd:".bold().yellow(),
+            format!("{cwd:?}").italic().blue()
         );
-        eprintln!(
-            "{} {}",
-            "timeout_ms:".bold().yellow(), timeout_ms
-        );
+        eprintln!("{} {}", "timeout_ms:".bold().yellow(), timeout_ms);
 
+        #[allow(clippy::items_after_statements)]
         async fn run(cmd: String, cwd: Option<String>, timeout_ms: u64) -> String {
             let mut command = if cfg!(target_os = "windows") {
                 let mut c = Command::new("cmd");
@@ -296,23 +333,25 @@ impl ToolCallFn for BashExec {
                     eprintln!(
                         "{} {} {} {}",
                         "completed:".bold().truecolor(76, 175, 80),
-                        format!("{} {}", "exit_code".bold().color(exit_color), code),
+                        format_args!("{} {}", "exit_code".bold().color(exit_color), code),
                         format!("{} {}", "stdout_len:".bold().cyan(), stdout.len()).cyan(),
                         format!("{} {}", "stderr_len:".bold().cyan(), stderr.len()).cyan(),
                     );
                     // Pretty-print a preview of stdout/stderr with colors
                     if !stdout.is_empty() {
-                        eprintln!("\n{}\n{}\n{}\n",
+                        eprintln!(
+                            "\n{}\n{}\n{}\n",
                             "stdout:".bold().green(),
-                            stdout.clone(),
-                            "─".repeat(20).truecolor(60,60,60),
+                            stdout,
+                            "─".repeat(20).truecolor(60, 60, 60),
                         );
                     }
                     if !stderr.is_empty() {
-                        eprintln!("\n{}\n{}\n{}\n",
+                        eprintln!(
+                            "\n{}\n{}\n{}\n",
                             "stderr:".bold().red(),
-                            stderr.clone(),
-                            "─".repeat(20).truecolor(60,60,60),
+                            stderr,
+                            "─".repeat(20).truecolor(60, 60, 60),
                         );
                     }
                     serde_json::json!({
@@ -357,9 +396,13 @@ impl ToolCallFn for ListDirectoryContents {
         "list the contents of a directory on an absolute or relative path. use this to explore codebases"
     }
 
-    fn get_name(&self) -> &'static str { "list_dir_contents" }
+    fn get_name(&self) -> &'static str {
+        "list_dir_contents"
+    }
 
-    fn get_timeout_wait(&self) -> std::time::Duration { Duration::ZERO }
+    fn get_timeout_wait(&self) -> std::time::Duration {
+        Duration::ZERO
+    }
     fn invoke<'invocation>(
         &'invocation self,
         args: &'invocation serde_json::Value,
@@ -371,11 +414,15 @@ impl ToolCallFn for ListDirectoryContents {
             "{} {} {}",
             "[tool]".bold().truecolor(255, 193, 7),
             "list_dir_contents".bold().truecolor(0, 188, 212),
-            format!("path={}", path).italic().blue(),
+            format!("path={path}").italic().blue(),
         );
         match list_directory_contents(path.clone()) {
             Ok(v) => {
-                eprintln!("{} {}", "✔".green(), "successfully listed dir contents".truecolor(102, 187, 106));
+                eprintln!(
+                    "{} {}",
+                    "✔".green(),
+                    "successfully listed dir contents".truecolor(102, 187, 106)
+                );
                 v.into_pin_box()
             }
             Err(e) => {
@@ -388,19 +435,23 @@ impl ToolCallFn for ListDirectoryContents {
 
 impl ToolCallFn for MakeDirectory {
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> {
-        vec![
-            ToolCallArgDescriptor::string(
-                "path",
-                "the absolute or relative path of the directory to create",
-            )
-        ]
+        vec![ToolCallArgDescriptor::string(
+            "path",
+            "the absolute or relative path of the directory to create",
+        )]
     }
 
-    fn get_description(&self) -> &'static str { "create a directory at the specified path (including intermediate directories if necessary)" }
+    fn get_description(&self) -> &'static str {
+        "create a directory at the specified path (including intermediate directories if necessary)"
+    }
 
-    fn get_name(&self) -> &'static str { "make_dir" }
+    fn get_name(&self) -> &'static str {
+        "make_dir"
+    }
 
-    fn get_timeout_wait(&self) -> std::time::Duration { Duration::ZERO }
+    fn get_timeout_wait(&self) -> std::time::Duration {
+        Duration::ZERO
+    }
 
     fn invoke<'invocation>(
         &'invocation self,
@@ -413,7 +464,7 @@ impl ToolCallFn for MakeDirectory {
             "{} {} {}",
             "[tool]".bold().truecolor(255, 193, 7),
             "make_dir".bold().truecolor(0, 188, 212),
-            format!("path={}", path).italic().blue(),
+            format!("path={path}").italic().blue(),
         );
         match make_directory(path.clone()) {
             Ok(v) => {
