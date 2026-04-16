@@ -24,6 +24,12 @@ pub fn render_markdown_to_terminal(input: &str) -> String {
     let mut out = String::new();
     let mut in_code = false;
     let mut highlighter: Option<HighlightLines> = None;
+    // Highlighter for Markdown (used for non-code text)
+    let markdown_syntax = ps
+        .find_syntax_by_token("Markdown")
+        .or_else(|| ps.find_syntax_by_extension("md"))
+        .unwrap_or_else(|| ps.find_syntax_plain_text());
+    let mut md_highlighter = HighlightLines::new(markdown_syntax, theme);
 
     for line in input.lines() {
         if let Some(rest) = line.strip_prefix("```") {
@@ -69,8 +75,12 @@ pub fn render_markdown_to_terminal(input: &str) -> String {
                 out.push_str(&(line.to_string() + "\n"));
             }
         } else {
-            // Non-code text: keep subtle color
-            out.push_str(&line.truecolor(220, 220, 220).to_string());
+            // Non-code text: highlight as Markdown to enable inline formatting and fenced blocks
+            let ranges = md_highlighter
+                .highlight_line(line, ps)
+                .unwrap_or_else(|_| vec![(syntect::highlighting::Style::default(), line)]);
+            let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
+            out.push_str(&escaped);
             out.push('\n');
         }
     }
