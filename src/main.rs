@@ -6,7 +6,9 @@ mod utils;
 use std::io::Write;
 
 use colored::Colorize;
-use openai_client::{ChatCompletionMessageParam, OpenAIAuth, OpenAIClient, ToolMap, new_system_user_turn};
+use openai_client::{
+    ChatCompletionMessageParam, OpenAIAuth, OpenAIClient, ToolMap, new_system_user_turn,
+};
 
 use crate::env::ENV_VARS;
 use crate::render::render_markdown_to_terminal;
@@ -55,10 +57,7 @@ async fn main() {
             messages.push(ChatCompletionMessageParam::new_user(prompt.clone()));
         }
 
-        let (resp, history) = client
-            .run_agent(messages.clone(), &tools)
-            .await
-            .unwrap();
+        let (resp, history) = client.run_agent(messages.clone(), &tools).await.unwrap();
 
         // Update history so the agent retains context
         messages = history;

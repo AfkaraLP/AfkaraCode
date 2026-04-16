@@ -249,12 +249,28 @@ impl ToolCallFn for CreateFile {
 impl ToolCallFn for BashExec {
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> {
         vec![
-            ToolCallArgDescriptor::string("cmd", "the exact shell command to execute"),
-            ToolCallArgDescriptor::string("cwd", "optional working directory; defaults to current"),
+            ToolCallArgDescriptor::string("cmd", "the exact shell command to execute")
+                .set_required(),
+            ToolCallArgDescriptor::string(
+                "cwd",
+                "optional working directory; defaults to current",
+            )
+            .set_optional(),
             ToolCallArgDescriptor::string(
                 "timeout_ms",
                 "optional timeout in milliseconds; defaults to 60000",
-            ),
+            )
+            .set_optional(),
+            ToolCallArgDescriptor::string(
+                "filter_for",
+                "optional regex: only include lines that match this (applied to stdout/stderr)",
+            )
+            .set_optional(),
+            ToolCallArgDescriptor::string(
+                "filter_out",
+                "optional regex: exclude lines that match this (applied to stdout/stderr)",
+            )
+            .set_optional(),
         ]
     }
 
@@ -291,6 +307,17 @@ impl ToolCallFn for BashExec {
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(60_000);
 
+        let filter_for = args
+            .get("filter_for")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+        let filter_out = args
+            .get("filter_out")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+
         eprintln!(
             "{} {} {} {} {} {}",
             "[tool]".bold().truecolor(255, 193, 7),
@@ -301,9 +328,17 @@ impl ToolCallFn for BashExec {
             format!("{cwd:?}").italic().blue()
         );
         eprintln!("{} {}", "timeout_ms:".bold().yellow(), timeout_ms);
+        if let Some(ff) = &filter_for { eprintln!("{} {}", "filter_for:".bold().yellow(), ff); }
+        if let Some(fo) = &filter_out { eprintln!("{} {}", "filter_out:".bold().yellow(), fo); }
 
         #[allow(clippy::items_after_statements)]
-        async fn run(cmd: String, cwd: Option<String>, timeout_ms: u64) -> String {
+        async fn run(
+            cmd: String,
+            cwd: Option<String>,
+            timeout_ms: u64,
+            filter_for: Option<String>,
+            filter_out: Option<String>,
+        ) -> String {
             let mut command = if cfg!(target_os = "windows") {
                 let mut c = Command::new("cmd");
                 c.arg("/C").arg(cmd);
@@ -324,10 +359,49 @@ impl ToolCallFn for BashExec {
             let output_fut = command.output();
             let result = timeout(Duration::from_millis(timeout_ms), output_fut).await;
 
+            // Prepare regex filters if provided and valid
+            let filter_for_re = match filter_for {
+                Some(pat) => match regex::Regex::new(&pat) {
+                    Ok(r) => Some(r),
+                    Err(e) => {
+                        eprintln!("{} {}", "invalid filter_for regex:".bold().red(), e);
+                        None
+                    }
+                },
+                None => None,
+            };
+            let filter_out_re = match filter_out {
+                Some(pat) => match regex::Regex::new(&pat) {
+                    Ok(r) => Some(r),
+                    Err(e) => {
+                        eprintln!("{} {}", "invalid filter_out regex:".bold().red(), e);
+                        None
+                    }
+                },
+                None => None,
+            };
+
+            fn apply_filters(text: &str, for_re: &Option<regex::Regex>, out_re: &Option<regex::Regex>) -> String {
+                text.lines()
+                    .filter(|line| match for_re {
+                        Some(r) => r.is_match(line),
+                        None => true,
+                    })
+                    .filter(|line| match out_re {
+                        Some(r) => !r.is_match(line),
+                        None => true,
+                    })
+                    .map(|l| l.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+
             match result {
                 Ok(Ok(output)) => {
-                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                    let stdout_raw = String::from_utf8_lossy(&output.stdout).to_string();
+                    let stderr_raw = String::from_utf8_lossy(&output.stderr).to_string();
+                    let stdout = apply_filters(&stdout_raw, &filter_for_re, &filter_out_re);
+                    let stderr = apply_filters(&stderr_raw, &filter_for_re, &filter_out_re);
                     let code = output.status.code().unwrap_or(-1);
                     let exit_color = if code == 0 { Color::Green } else { Color::Red };
                     eprintln!(
@@ -381,7 +455,7 @@ impl ToolCallFn for BashExec {
             }
         }
 
-        Box::pin(run(cmd.clone(), cwd, timeout_ms))
+        Box::pin(run(cmd.clone(), cwd, timeout_ms, filter_for, filter_out))
     }
 }
 impl ToolCallFn for ListDirectoryContents {
