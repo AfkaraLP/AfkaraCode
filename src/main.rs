@@ -8,6 +8,35 @@ mod config;
 
 use std::io::Write;
 
+fn workspace_extra_instructions() -> Option<String> {
+    use std::fs;
+    use std::time::SystemTime;
+
+    let files = ["AGENTS.md", "CLAUDE.md"];
+    let mut newest: Option<(&str, SystemTime)> = None;
+    for name in files {
+        if let Ok(meta) = fs::metadata(name) {
+            if let Ok(mtime) = meta.modified() {
+                match newest {
+                    None => newest = Some((name, mtime)),
+                    Some((_, ref t)) if mtime > *t => newest = Some((name, mtime)),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    if let Some((name, _)) = newest {
+        if let Ok(content) = fs::read_to_string(name) {
+            return Some(format!(
+                "\n\nAdditional workspace instructions (from {name}):\n\n{}",
+                content
+            ));
+        }
+    }
+    None
+}
+
 use colored::Colorize;
 use openai_client::{
     ChatCompletionMessageParam, OpenAIAuth, OpenAIClient, ToolMap, new_system_user_turn,
@@ -59,8 +88,12 @@ async fn main() {
 
         // Initialize with system + first user, then append subsequent user turns
         if messages.is_empty() {
+            let mut system_prompt = String::from("You are a coding agent. Don't edit files unless specifically instructed to. When reading files, prefer using the optional offset and length arguments on read_file to avoid reading the entire file unless necessary.");
+            if let Some(extra) = workspace_extra_instructions() {
+                system_prompt.push_str(&extra);
+            }
             messages = new_system_user_turn(
-                "You are a coding agent. Don't edit files unless specifically instructed to. When reading files, prefer using the optional offset and length arguments on read_file to avoid reading the entire file unless necessary.",
+                &system_prompt,
                 prompt.clone(),
             );
         } else {
