@@ -160,37 +160,13 @@ impl ToolCallFn for ReadFile {
         println!("reading file at path: {path} (offset={offset:?}, length={length:?})");
         match read_file_with_range(path.clone(), offset, length) {
             Ok(v) => {
-                // Syntax highlight based on file extension using syntect
-                let ps: SyntaxSet = SyntaxSet::load_defaults_newlines();
-                let ts: ThemeSet = ThemeSet::load_defaults();
-                let theme = ts
-                    .themes
-                    .get("base16-ocean.dark")
-                    .unwrap_or_else(|| ts.themes.values().next().expect("has theme"));
-
-                let ext = Path::new(&path)
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("");
-                let syntax = ps
-                    .find_syntax_by_extension(ext)
-                    .or_else(|| ps.find_syntax_by_name("Rust"))
-                    .unwrap_or_else(|| ps.find_syntax_plain_text());
-
-                let mut h = HighlightLines::new(syntax, theme);
-                println!("{}", "file output:".bold().truecolor(0, 188, 212));
-                for line in LinesWithEndings::from(v.as_str()) {
-                    let ranges = h
-                        .highlight_line(line, &ps)
-                        .unwrap_or_else(|_| vec![(syntect::highlighting::Style::default(), line)]);
-                    let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
-                    print!("{escaped}");
-                }
-                // ensure a trailing newline if not present
-                if !v.ends_with('\n') {
-                    println!();
-                }
-                v.into_pin_box()
+                // Do not output file contents; only report the path and basic metadata
+                println!("{}", "file contents suppressed".bold().truecolor(0, 188, 212));
+                let bytes = v.len();
+                format!(
+                    "read file path: {path} (offset={offset:?}, length={length:?}, bytes_read={bytes})"
+                )
+                .into_pin_box()
             }
             Err(e) => {
                 println!("failed reading file: {e}");
