@@ -29,14 +29,16 @@ impl ToolCallFn for EditFile {
     }
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> {
         vec![
-            ToolCallArgDescriptor::string("path", "the relative path of the file to read."),
-            ToolCallArgDescriptor::string("old", "the part of the file that should be replaced"),
-            ToolCallArgDescriptor::string("new", "the new snippet that should be used in the file"),
+            ToolCallArgDescriptor::string("path", "relative path of the file to edit"),
+            ToolCallArgDescriptor::string("old", "exact text to replace (must exist)")
+                .set_required(),
+            ToolCallArgDescriptor::string("new", "replacement text")
+                .set_required(),
         ]
     }
 
     fn get_description(&self) -> &'static str {
-        "edit a file by providing what snippet of the file you want to change and what to replate it with. this uses str replace."
+        "Replace a snippet in a file by exact string match (simple string replace; no regex)."
     }
 
     fn get_name(&self) -> &'static str {
@@ -198,20 +200,16 @@ impl ToolCallFn for ReadFile {
     }
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> {
         vec![
-            ToolCallArgDescriptor::string("path", "the relative path of the file to read."),
-            ToolCallArgDescriptor::number(
-                "offset",
-                "optional byte offset to start reading from (defaults to 0)",
-            ),
-            ToolCallArgDescriptor::number(
-                "length",
-                "optional maximum number of bytes to read (reads to EOF if omitted)",
-            ),
+            ToolCallArgDescriptor::string("path", "relative path to read"),
+            ToolCallArgDescriptor::number("offset", "optional byte offset to start (default 0)")
+                .set_optional(),
+            ToolCallArgDescriptor::number("length", "optional max bytes to read (to EOF if omitted)")
+                .set_optional(),
         ]
     }
 
     fn get_description(&self) -> &'static str {
-        "read the contents of a file with optional byte offset and length. always use this to know how a file looks like before modifying it in any way shape or form."
+        "Read file contents with optional byte range (offset, length). Use before editing files."
     }
 
     fn get_name(&self) -> &'static str {
@@ -256,7 +254,7 @@ impl ToolCallFn for CreateFile {
     }
 
     fn get_description(&self) -> &'static str {
-        "create a new file with the given content at the given path."
+        "Create or overwrite a file at the given path with the provided content."
     }
 
     fn get_name(&self) -> &'static str {
@@ -400,30 +398,30 @@ async fn run_bash_command(
 impl ToolCallFn for BashExec {
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> {
         vec![
-            ToolCallArgDescriptor::string("cmd", "the exact shell command to execute")
+            ToolCallArgDescriptor::string("cmd", "shell command to run")
                 .set_required(),
-            ToolCallArgDescriptor::string("cwd", "optional working directory; defaults to current")
+            ToolCallArgDescriptor::string("cwd", "working directory (optional)")
                 .set_optional(),
             ToolCallArgDescriptor::string(
                 "timeout_ms",
-                "optional timeout in milliseconds; defaults to 60000",
+                "timeout in milliseconds (default 60000)",
             )
             .set_optional(),
             ToolCallArgDescriptor::string(
                 "filter_for",
-                "optional regex: only include lines that match this (applied to stdout/stderr)",
+                "regex: only include matching lines from stdout/stderr (optional)",
             )
             .set_optional(),
             ToolCallArgDescriptor::string(
                 "filter_out",
-                "optional regex: exclude lines that match this (applied to stdout/stderr)",
+                "regex: exclude matching lines from stdout/stderr (optional)",
             )
             .set_optional(),
         ]
     }
 
     fn get_description(&self) -> &'static str {
-        "execute an arbitrary bash command in a shell and return stdout, stderr and exit code"
+        "Run a shell command. Returns JSON with exit_code, stdout, stderr. Supports optional cwd, timeout, and regex filters."
     }
 
     fn get_name(&self) -> &'static str {
@@ -486,12 +484,12 @@ impl ToolCallFn for ListDirectoryContents {
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> {
         vec![ToolCallArgDescriptor::string(
             "path",
-            "the absolute or relative path of the directory to list",
+            "path of directory to list (absolute or relative)",
         )]
     }
 
     fn get_description(&self) -> &'static str {
-        "list the contents of a directory on an absolute or relative path. use this to explore codebases"
+        "List names of entries in a directory. Use to explore codebases before reading files."
     }
 
     fn get_name(&self) -> &'static str {
@@ -535,12 +533,12 @@ impl ToolCallFn for MakeDirectory {
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> {
         vec![ToolCallArgDescriptor::string(
             "path",
-            "the absolute or relative path of the directory to create",
+            "directory path to create (absolute or relative)",
         )]
     }
 
     fn get_description(&self) -> &'static str {
-        "create a directory at the specified path (including intermediate directories if necessary)"
+        "Create a directory; creates intermediate directories if needed (mkdir -p behavior)."
     }
 
     fn get_name(&self) -> &'static str {

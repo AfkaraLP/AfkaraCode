@@ -93,7 +93,7 @@ async fn main() {
         // Initialize with system + first user, then append subsequent user turns
         if messages.is_empty() {
             let mut system_prompt = String::from(
-                "You are a coding agent. Don't edit files unless specifically instructed to. When reading files, prefer using the optional offset and length arguments on read_file to avoid reading the entire file unless necessary.",
+                "You are a careful, fast coding agent.\n- Never modify files unless the user explicitly asks for changes.\n- To inspect files, always use read_file first and prefer offset/length to avoid large reads.\n- Use list_dir_contents to explore directories before reading. Keep answers concise.",
             );
             if let Some(extra) = workspace_extra_instructions() {
                 system_prompt.push_str(&extra);
