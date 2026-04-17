@@ -41,6 +41,9 @@ use colored::Colorize;
 use openai_client::{
     ChatCompletionMessageParam, OpenAIAuth, OpenAIClient, ToolMap, new_system_user_turn,
 };
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::time::Duration;
+use crossterm::{event::{self, Event, KeyCode}, terminal};
 
 use crate::env::ENV_VARS;
 use crate::render::render_markdown_to_terminal;
@@ -101,31 +104,104 @@ async fn main() {
         }
 
         let max_retries: u32 = 5;
+        let mut was_cancelled = false;
         let result = {
             let mut attempt = 0u32;
             loop {
-                match client.run_agent(messages.clone(), &tools).await {
-                    Ok(r) => break Some(r),
-                    Err(e) => {
-                        attempt += 1;
-                        if attempt >= max_retries {
-                            eprintln!("Failed after {max_retries} attempts: {e:?}");
-                            break None;
-                        }
-                        let delay_secs = 2u64.pow(attempt);
-                        eprintln!(
-                            "Request failed (attempt {attempt}/{max_retries}): {e:?}\nRetrying in {delay_secs}s..."
-                        );
-                        tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
-                    }
-                }
-            }
-        };
+                // Spawn an ESC listener thread for this attempt
+                use std::time::Duration as StdDuration;
+                let cancelled = Arc::new(AtomicBool::new(false));
+                let running = Arc::new(AtomicBool::new(true));
+                let cancelled_thread = Arc::clone(&cancelled);
+                let running_thread = Arc::clone(&running);
 
-        let Some((resp, history)) = result else {
-            eprintln!("Skipping this turn due to repeated failures.");
+                let esc_handle = std::thread::spawn(move || {
+                    let _ = terminal::enable_raw_mode();
+                    // Ensure we always disable raw mode when exiting this thread
+                    struct RawModeGuard;
+                    impl Drop for RawModeGuard { fn drop(&mut self) { let _ = terminal::disable_raw_mode(); } }
+                    let _guard = RawModeGuard;
+
+                    loop {
+                        if !running_thread.load(Ordering::SeqCst) { break; }
+                        if let Ok(true) = event::poll(StdDuration::from_millis(100)) {
+                            if let Ok(Event::Key(key)) = event::read() {
+                                if key.code == KeyCode::Esc {
+                                    cancelled_thread.store(true, Ordering::SeqCst);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // Build the agent future and a cancellation future
+                let mut fut = Box::pin(client.run_agent(messages.clone(), &tools));
+                let cancel_fut = async {
+                    while !cancelled.load(Ordering::SeqCst) {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+                };
+
+                let mut retry_delay: Option<u64> = None;
+                let outcome: Option<(openai_client::ChatCompletionResponseMessage, Vec<ChatCompletionMessageParam>)> = tokio::select! {
+                    res = &mut fut => {
+                        running.store(false, Ordering::SeqCst);
+                        match res {
+                            Ok(r) => Some(r),
+                            Err(e) => {
+                                attempt += 1;
+                                if attempt >= max_retries {
+                                    eprintln!("Failed after {max_retries} attempts: {e:?}");
+                                    None
+                                } else {
+                                    let delay_secs = 2u64.pow(attempt);
+                                    eprintln!(
+                                        "Request failed (attempt {attempt}/{max_retries}): {e:?}\nRetrying in {delay_secs}s..."
+                                    );
+                                    retry_delay = Some(delay_secs);
+                                    None
+                                }
+                            }
+                        }
+                    },
+                    _ = cancel_fut => {
+                        // User pressed ESC; stop the ESC thread and mark cancelled
+                        running.store(false, Ordering::SeqCst);
+                        was_cancelled = true;
+                        None
+                    }
+                };
+
+                // Ensure ESC thread is stopped and joined before proceeding
+                let _ = esc_handle.join();
+
+                // If we have a result or were cancelled, break out of the retry loop
+                if was_cancelled || outcome.is_some() {
+                    break outcome;
+                }
+
+                // If we are retrying, wait the delay and continue the attempt loop
+                if let Some(secs) = retry_delay {
+                    tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+                    continue;
+                }
+
+                // No result and no retry scheduled -> break with None
+                break outcome;
+                }
+            };
+
+        if result.is_none() {
+            if was_cancelled {
+                eprintln!("Inference cancelled by user (ESC).\n");
+            } else {
+                eprintln!("Skipping this turn due to repeated failures.");
+            }
             continue;
-        };
+        }
+
+        let (resp, history) = result.unwrap();
 
         // Update history so the agent retains context
         messages = history;
