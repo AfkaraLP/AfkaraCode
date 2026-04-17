@@ -82,7 +82,8 @@ async fn main() {
         print!("{prompt_label}");
         _ = std::io::stdout().flush();
         _ = std::io::stdin().read_line(&mut prompt);
-        if prompt.contains("exit") {
+        let cmd = prompt.trim();
+        if cmd == "exit" || cmd == ":q" || cmd == ":x" {
             break;
         }
 
