@@ -4,6 +4,7 @@ mod tools;
 mod utils;
 mod lua;
 mod xdg;
+mod config;
 
 use std::io::Write;
 

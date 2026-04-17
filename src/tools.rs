@@ -1,4 +1,4 @@
-use std::{path::Path, time::Duration};
+use std::{path::Path, time::Duration, process::Command};
 
 use colored::{Color, Colorize};
 use openai_client::{IntoPinBox, ToolCallArgDescriptor, ToolCallFn};
@@ -14,6 +14,7 @@ use syntect::{
 use crate::utils::{
     create_file, edit_file, list_directory_contents, make_directory, read_file_with_range,
 };
+use crate::config::load_config;
 
 pub struct EditFile;
 pub struct ReadFile;
@@ -108,6 +109,10 @@ impl ToolCallFn for EditFile {
                     print!("{escaped}");
                 }
                 println!();
+                // Run formatter hook after successful edit
+                if let Err(e) = run_formatter_hook(&path) {
+                    println!("{} {}", "formatter error:".bold().red(), e);
+                }
                 println!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
                 v.into_pin_box()
             }
@@ -118,6 +123,70 @@ impl ToolCallFn for EditFile {
         }
     }
 }
+fn run_formatter_hook(path: &str) -> Result<(), String> {
+    // Load config
+    let cfg = load_config();
+    if !cfg.formatter_enabled() {
+        return Ok(());
+    }
+
+    // Determine extension
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    // Find command
+    let cmd_template = cfg
+        .command_for_ext(&ext)
+        .or_else(|| default_formatter_for_ext(&ext))
+        .ok_or_else(|| format!("no formatter configured for .{ext}"))?;
+
+    // Build command by replacing {file}
+    let command_line = cmd_template.replace("{file}", path);
+
+    // Execute via shell for convenience so templates can contain args
+    let status = if cfg!(target_os = "windows") {
+        Command::new("cmd").args(["/C", &command_line]).status()
+    } else {
+        Command::new("sh").args(["-lc", &command_line]).status()
+    };
+
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("formatter exited with status {s}")),
+        Err(e) => Err(format!("failed to run formatter: {e}")),
+    }
+}
+
+fn default_formatter_for_ext(ext: &str) -> Option<String> {
+    match ext {
+        // Rust
+        "rs" => Some("rustfmt {file}".to_string()),
+        // JavaScript/TypeScript and variants
+        "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" => Some("prettier --write {file}".to_string()),
+        // JSON, CSS, Markdown supported by Prettier too
+        "json" | "css" | "scss" | "md" | "markdown" | "yaml" | "yml" => Some("prettier --write {file}".to_string()),
+        // Python
+        "py" => Some("ruff format {file}".to_string()),
+        // Go
+        "go" => Some("gofmt -w {file}".to_string()),
+        // Shell
+        "sh" | "bash" => Some("shfmt -w {file}".to_string()),
+        // Lua
+        "lua" => Some("stylua {file}".to_string()),
+        // C/C++
+        "c" | "h" | "cpp" | "cxx" | "hpp" => Some("clang-format -i {file}".to_string()),
+        // Ruby
+        "rb" => Some("rubocop -x --only Layout/EndAlignment,Layout/SpaceInsideBlockBraces {file}".to_string()),
+        // PHP
+        "php" => Some("php-cs-fixer fix {file}".to_string()),
+        // Default: none
+        _ => None,
+    }
+}
+
 impl ToolCallFn for ReadFile {
     fn get_timeout_wait(&self) -> std::time::Duration {
         Duration::ZERO
@@ -212,6 +281,10 @@ impl ToolCallFn for CreateFile {
         );
         match create_file(path.clone(), content.clone()) {
             Ok(v) => {
+                // Run formatter hook after successful edit
+                if let Err(e) = run_formatter_hook(&path) {
+                    println!("{} {}", "formatter error:".bold().red(), e);
+                }
                 println!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
                 v.into_pin_box()
             }
@@ -518,6 +591,10 @@ impl ToolCallFn for MakeDirectory {
         );
         match make_directory(path.clone()) {
             Ok(v) => {
+                // Run formatter hook after successful edit
+                if let Err(e) = run_formatter_hook(&path) {
+                    println!("{} {}", "formatter error:".bold().red(), e);
+                }
                 println!("{} {}", "✔".green(), v.truecolor(102, 187, 106));
                 v.into_pin_box()
             }
