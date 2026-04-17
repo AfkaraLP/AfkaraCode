@@ -29,6 +29,8 @@ The project demonstrates how an AI can act as a coding agent that can directly m
     - Local: ./lua_tools
     - XDG config: $XDG_CONFIG_HOME/afkaracode/plugins and each $XDG_CONFIG_DIRS/afkaracode/plugins
   - Lua file returns a table with fields: name, description, entry (function name), args, and the entry function
+  - The tool's description from the Lua file is propagated and used when registering the tool
+  - Arg types supported in args: string, number, bool (case-insensitive: bool/boolean)
   - Built-in `http` module with http.get/post/request for network requests
 
 ## How It Works
@@ -79,6 +81,14 @@ return {
 ```
 
 Restart the app, and the tool will be registered automatically as `http_example`.
+
+Supported arg types in Lua tools
+- string: default if type is omitted or unrecognized
+- number: numeric arguments
+- bool/boolean: boolean arguments
+
+Tool description propagation
+- The description field provided in the Lua tool table is now used as the tool's description when registered, so it appears to the agent and users.
 
 ## Project Structure
 

@@ -29,6 +29,7 @@ impl LuaTool {
                 let desc: &'static str = Box::leak(a.desc.clone().into_boxed_str());
                 let mut d = match a.ty.as_str() {
                     "number" => ToolCallArgDescriptor::number(name, desc),
+                    "bool" | "boolean" | "Bool" | "Boolean" => ToolCallArgDescriptor::bool(name, desc),
                     _ => ToolCallArgDescriptor::string(name, desc),
                 };
                 if a.required { d = d.set_required(); } else { d = d.set_optional(); }
@@ -43,7 +44,7 @@ impl ToolCallFn for LuaTool {
 
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> { self.build_arg_descriptors() }
 
-    fn get_description(&self) -> &'static str { "lua-defined dynamic tool" }
+    fn get_description(&self) -> &'static str { Box::leak(self.description.clone().into_boxed_str()) }
 
     fn get_name(&self) -> &'static str { Box::leak(self.name.clone().into_boxed_str()) }
 
