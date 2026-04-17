@@ -24,6 +24,12 @@ The project demonstrates how an AI can act as a coding agent that can directly m
   - `read_file`: Read file contents (with optional offset and length)
   - `create_file`: Create a new file with given content
   - `list_directory_contents`: List files and directories in a path
+- Lua runtime for user-defined tools at runtime:
+  - Drop .lua files in:
+    - Local: ./lua_tools
+    - XDG config: $XDG_CONFIG_HOME/afkaracode/plugins and each $XDG_CONFIG_DIRS/afkaracode/plugins
+  - Lua file returns a table with fields: name, description, entry (function name), args, and the entry function
+  - Built-in `http` module with http.get/post/request for network requests
 
 ## How It Works
 
@@ -41,6 +47,9 @@ The project demonstrates how an AI can act as a coding agent that can directly m
 - Rust 1.56+
 - OpenAI function calling endpoint (tested with local server)
 - tokio runtime
+- On Linux/macOS, XDG base directories are honored for plugins:
+  - $XDG_CONFIG_HOME/afkaracode/plugins
+  - Each $XDG_CONFIG_DIRS/afkaracode/plugins
 
 ## Usage Example
 
@@ -49,6 +58,27 @@ $ cargo run
 AfkaraCode> edit_file src/main.rs "old" "new"
 successfully edited file: successfully wrote to file
 ```
+
+### Define a Lua tool
+Create a file at lua_tools/http_example.lua (or $XDG_CONFIG_HOME/afkaracode/plugins/http_example.lua) with:
+
+```
+return {
+  name = "http_example",
+  description = "Example Lua tool that fetches a URL and returns first 200 chars.",
+  entry = "run",
+  args = {
+    { name = "url", description = "URL to fetch", type = "string", required = true }
+  },
+  run = function(args)
+    local body = http.get(args.url)
+    if not body then return "" end
+    return string.sub(body, 1, 200)
+  end
+}
+```
+
+Restart the app, and the tool will be registered automatically as `http_example`.
 
 ## Project Structure
 

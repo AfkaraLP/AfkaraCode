@@ -2,6 +2,8 @@ mod env;
 mod render;
 mod tools;
 mod utils;
+mod lua;
+mod xdg;
 
 use std::io::Write;
 
@@ -22,13 +24,20 @@ async fn main() {
     let endpoint = &ENV_VARS.v1_endpoint;
     let api_key: Option<OpenAIAuth> = ENV_VARS.api_key.clone();
 
-    let tools = ToolMap::new()
+    let mut tools = ToolMap::new()
         .register_tool(EditFile)
         .register_tool(ReadFile)
         .register_tool(CreateFile)
         .register_tool(MakeDirectory)
         .register_tool(ListDirectoryContents)
         .register_tool(BashExec);
+
+    // Load user-defined Lua tools from XDG config plugin dirs and local ./lua_tools
+    let mut lua_tool_dirs = crate::xdg::plugin_dirs();
+    lua_tool_dirs.push(std::path::PathBuf::from("lua_tools"));
+    for t in crate::lua::load_lua_tools_from_dirs(&lua_tool_dirs) {
+        tools = tools.register_tool(t);
+    }
 
     let client = OpenAIClient::new(endpoint, model_name, api_key);
 
