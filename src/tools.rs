@@ -222,6 +222,126 @@ impl ToolCallFn for CreateFile {
         }
     }
 }
+fn apply_filters(
+    text: &str,
+    for_re: Option<&regex::Regex>,
+    out_re: Option<&regex::Regex>,
+) -> String {
+    text.lines()
+        .filter(|line| for_re.is_none_or(|r| r.is_match(line)))
+        .filter(|line| out_re.is_none_or(|r| !r.is_match(line)))
+        .map(std::string::ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+async fn run_bash_command(
+    cmd: String,
+    cwd: Option<String>,
+    timeout_ms: u64,
+    filter_for: Option<String>,
+    filter_out: Option<String>,
+) -> String {
+    use tokio::process::Command;
+    use tokio::time::{Duration, timeout};
+
+    let mut command = if cfg!(target_os = "windows") {
+        let mut c = Command::new("cmd");
+        c.arg("/C").arg(&cmd);
+        c
+    } else {
+        let mut c = Command::new("bash");
+        c.arg("-lc").arg(&cmd);
+        c
+    };
+
+    if let Some(ref dir) = cwd {
+        println!("{} {}", "working dir:".bold().magenta(), dir);
+        command.current_dir(dir);
+    }
+
+    println!("{}", "starting process...".bold().truecolor(121, 134, 203));
+
+    let output_fut = command.output();
+    let result = timeout(Duration::from_millis(timeout_ms), output_fut).await;
+
+    // Prepare regex filters if provided and valid
+    let filter_for_re = filter_for.and_then(|pat| match regex::Regex::new(&pat) {
+        Ok(r) => Some(r),
+        Err(e) => {
+            println!("{} {}", "invalid filter_for regex:".bold().red(), e);
+            None
+        }
+    });
+    let filter_out_re = filter_out.and_then(|pat| match regex::Regex::new(&pat) {
+        Ok(r) => Some(r),
+        Err(e) => {
+            println!("{} {}", "invalid filter_out regex:".bold().red(), e);
+            None
+        }
+    });
+
+    match result {
+        Ok(Ok(output)) => {
+            let stdout_raw = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr_raw = String::from_utf8_lossy(&output.stderr).to_string();
+            let stdout =
+                apply_filters(&stdout_raw, filter_for_re.as_ref(), filter_out_re.as_ref());
+            let stderr =
+                apply_filters(&stderr_raw, filter_for_re.as_ref(), filter_out_re.as_ref());
+            let code = output.status.code().unwrap_or(-1);
+            let exit_color = if code == 0 { Color::Green } else { Color::Red };
+            println!(
+                "{} {} {} {}",
+                "completed:".bold().truecolor(76, 175, 80),
+                format_args!("{} {}", "exit_code".bold().color(exit_color), code),
+                format!("{} {}", "stdout_len:".bold().cyan(), stdout.len()).cyan(),
+                format!("{} {}", "stderr_len:".bold().cyan(), stderr.len()).cyan(),
+            );
+            // Pretty-print a preview of stdout/stderr with colors
+            if !stdout.is_empty() {
+                println!(
+                    "\n{}\n{}\n{}\n",
+                    "stdout:".bold().green(),
+                    stdout,
+                    "─".repeat(20).truecolor(60, 60, 60),
+                );
+            }
+            if !stderr.is_empty() {
+                println!(
+                    "\n{}\n{}\n{}\n",
+                    "stderr:".bold().red(),
+                    stderr,
+                    "─".repeat(20).truecolor(60, 60, 60),
+                );
+            }
+            serde_json::json!({
+                "exit_code": code,
+                "stdout": stdout,
+                "stderr": stderr,
+            })
+            .to_string()
+        }
+        Ok(Err(e)) => {
+            println!("{} {}", "failed to execute command:".bold().red(), e);
+            "failed to execute command".to_string()
+        }
+        Err(_) => {
+            println!(
+                "{} {} {}",
+                "timed out after".bold().red(),
+                timeout_ms,
+                "ms".bold().red()
+            );
+            serde_json::json!({
+                "error": "timeout",
+                "timeout_ms": timeout_ms,
+            })
+            .to_string()
+        }
+    }
+}
+
 impl ToolCallFn for BashExec {
     fn get_args(&self) -> Vec<ToolCallArgDescriptor> {
         vec![
@@ -263,9 +383,6 @@ impl ToolCallFn for BashExec {
         &'invocation self,
         args: &'invocation serde_json::Value,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + 'invocation>> {
-        use tokio::process::Command;
-        use tokio::time::{Duration, timeout};
-
         let Some(Value::String(cmd)) = args.get("cmd") else {
             return "please provide a cmd".into_pin_box();
         };
@@ -284,12 +401,12 @@ impl ToolCallFn for BashExec {
             .get("filter_for")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
         let filter_out = args
             .get("filter_out")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
 
         println!(
             "{} {} {} {} {} {}",
@@ -308,135 +425,13 @@ impl ToolCallFn for BashExec {
             println!("{} {}", "filter_out:".bold().yellow(), fo);
         }
 
-        #[allow(clippy::items_after_statements)]
-        async fn run(
-            cmd: String,
-            cwd: Option<String>,
-            timeout_ms: u64,
-            filter_for: Option<String>,
-            filter_out: Option<String>,
-        ) -> String {
-            let mut command = if cfg!(target_os = "windows") {
-                let mut c = Command::new("cmd");
-                c.arg("/C").arg(cmd);
-                c
-            } else {
-                let mut c = Command::new("bash");
-                c.arg("-lc").arg(cmd);
-                c
-            };
-
-            if let Some(dir) = cwd.clone() {
-                println!("{} {}", "working dir:".bold().magenta(), dir);
-                command.current_dir(dir);
-            }
-
-            println!("{}", "starting process...".bold().truecolor(121, 134, 203));
-
-            let output_fut = command.output();
-            let result = timeout(Duration::from_millis(timeout_ms), output_fut).await;
-
-            // Prepare regex filters if provided and valid
-            let filter_for_re = match filter_for {
-                Some(pat) => match regex::Regex::new(&pat) {
-                    Ok(r) => Some(r),
-                    Err(e) => {
-                        println!("{} {}", "invalid filter_for regex:".bold().red(), e);
-                        None
-                    }
-                },
-                None => None,
-            };
-            let filter_out_re = match filter_out {
-                Some(pat) => match regex::Regex::new(&pat) {
-                    Ok(r) => Some(r),
-                    Err(e) => {
-                        println!("{} {}", "invalid filter_out regex:".bold().red(), e);
-                        None
-                    }
-                },
-                None => None,
-            };
-
-            fn apply_filters(
-                text: &str,
-                for_re: &Option<regex::Regex>,
-                out_re: &Option<regex::Regex>,
-            ) -> String {
-                text.lines()
-                    .filter(|line| match for_re {
-                        Some(r) => r.is_match(line),
-                        None => true,
-                    })
-                    .filter(|line| match out_re {
-                        Some(r) => !r.is_match(line),
-                        None => true,
-                    })
-                    .map(|l| l.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            }
-
-            match result {
-                Ok(Ok(output)) => {
-                    let stdout_raw = String::from_utf8_lossy(&output.stdout).to_string();
-                    let stderr_raw = String::from_utf8_lossy(&output.stderr).to_string();
-                    let stdout = apply_filters(&stdout_raw, &filter_for_re, &filter_out_re);
-                    let stderr = apply_filters(&stderr_raw, &filter_for_re, &filter_out_re);
-                    let code = output.status.code().unwrap_or(-1);
-                    let exit_color = if code == 0 { Color::Green } else { Color::Red };
-                    println!(
-                        "{} {} {} {}",
-                        "completed:".bold().truecolor(76, 175, 80),
-                        format_args!("{} {}", "exit_code".bold().color(exit_color), code),
-                        format!("{} {}", "stdout_len:".bold().cyan(), stdout.len()).cyan(),
-                        format!("{} {}", "stderr_len:".bold().cyan(), stderr.len()).cyan(),
-                    );
-                    // Pretty-print a preview of stdout/stderr with colors
-                    if !stdout.is_empty() {
-                        println!(
-                            "\n{}\n{}\n{}\n",
-                            "stdout:".bold().green(),
-                            stdout,
-                            "─".repeat(20).truecolor(60, 60, 60),
-                        );
-                    }
-                    if !stderr.is_empty() {
-                        println!(
-                            "\n{}\n{}\n{}\n",
-                            "stderr:".bold().red(),
-                            stderr,
-                            "─".repeat(20).truecolor(60, 60, 60),
-                        );
-                    }
-                    serde_json::json!({
-                        "exit_code": code,
-                        "stdout": stdout,
-                        "stderr": stderr,
-                    })
-                    .to_string()
-                }
-                Ok(Err(e)) => {
-                    println!("{} {}", "failed to execute command:".bold().red(), e);
-                    "failed to execute command".to_string()
-                }
-                Err(_) => {
-                    println!(
-                        "{} {} {}",
-                        "timed out after".bold().red(),
-                        timeout_ms,
-                        "ms".bold().red()
-                    );
-                    serde_json::json!({
-                        "error": "timeout",
-                        "timeout_ms": timeout_ms,
-                    })
-                    .to_string()
-                }
-            }
-        }
-
-        Box::pin(run(cmd.clone(), cwd, timeout_ms, filter_for, filter_out))
+        Box::pin(run_bash_command(
+            cmd.clone(),
+            cwd,
+            timeout_ms,
+            filter_for,
+            filter_out,
+        ))
     }
 }
 impl ToolCallFn for ListDirectoryContents {

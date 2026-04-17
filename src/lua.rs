@@ -52,14 +52,15 @@ impl ToolCallFn for LuaTool {
         &'invocation self,
         args: &'invocation serde_json::Value,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + 'invocation>> {
+        #[allow(clippy::unused_async)]
         async fn run_tool(tool: &LuaTool, args: &JsonValue) -> String {
-            match run_lua(tool, args).await { Ok(s) => s, Err(e) => format!("lua tool error: {e}") }
+            match run_lua(tool, args) { Ok(s) => s, Err(e) => format!("lua tool error: {e}") }
         }
         Box::pin(run_tool(self, args))
     }
 }
 
-async fn run_lua(tool: &LuaTool, args: &JsonValue) -> Result<String, LuaError> {
+fn run_lua(tool: &LuaTool, args: &JsonValue) -> Result<String, LuaError> {
     let lua = Lua::new();
     install_http(&lua)?;
 
@@ -92,7 +93,7 @@ fn parse_args_table(tbl: &Table) -> LuaResult<Vec<ArgSpec>> {
         for pair in args_tbl.sequence_values::<Table>() {
             let t = pair?;
             let name: String = t.get("name").unwrap_or_else(|_| "arg".to_string());
-            let desc: String = t.get("description").unwrap_or_else(|_| "".to_string());
+            let desc: String = t.get("description").unwrap_or_else(|_| String::new());
             let ty: String = t.get("type").unwrap_or_else(|_| "string".to_string());
             let required: bool = t.get("required").unwrap_or(true);
             specs.push(ArgSpec { name, desc, ty, required });
@@ -124,10 +125,9 @@ fn install_http(lua: &Lua) -> LuaResult<()> {
         let kind = match body {
             LuaValue::String(s) => BodyKind::Text(s.to_str()?.to_string()),
             LuaValue::Nil => BodyKind::None,
-            other => match lua.from_value::<serde_json::Value>(other) {
-                Ok(v) => BodyKind::Json(v),
-                Err(_) => BodyKind::None,
-            }
+            other => lua
+                .from_value::<serde_json::Value>(other)
+                .map_or(BodyKind::None, BodyKind::Json),
         };
         let res = tokio::task::block_in_place(move || -> Result<String, String> {
             let client = Client::builder().timeout(StdDuration::from_secs(30)).build().map_err(|e| e.to_string())?;
@@ -161,13 +161,14 @@ fn install_http(lua: &Lua) -> LuaResult<()> {
                 options.body = match body {
                     LuaValue::String(s) => BodyKind::Text(s.to_str()?.to_string()),
                     LuaValue::Nil => BodyKind::None,
-                    other => match lua.from_value::<serde_json::Value>(other) { Ok(v) => BodyKind::Json(v), Err(_) => BodyKind::None }
+                    other => lua.from_value::<serde_json::Value>(other).map_or(BodyKind::None, BodyKind::Json)
                 };
             }
-            if let Ok(json_val) = opt_tbl.get::<_, LuaValue>("json") {
-                if !matches!(json_val, LuaValue::Nil) {
-                    if let Ok(v) = lua.from_value::<serde_json::Value>(json_val) { options.json = Some(v); }
-                }
+            if let Ok(json_val) = opt_tbl.get::<_, LuaValue>("json")
+                && !matches!(json_val, LuaValue::Nil)
+                && let Ok(v) = lua.from_value::<serde_json::Value>(json_val)
+            {
+                options.json = Some(v);
             }
         }
         let res = tokio::task::block_in_place(move || -> Result<String, String> {
@@ -199,26 +200,6 @@ fn install_http(lua: &Lua) -> LuaResult<()> {
     Ok(())
 }
 
-pub fn load_lua_tools_from_dir(dir: &str) -> Vec<LuaTool> {
-    let mut tools = Vec::new();
-    let path = Path::new(dir);
-    if !path.exists() { return tools; }
-
-    let entries = match fs::read_dir(path) { Ok(r) => r, Err(_) => return tools };
-
-    for entry in entries.flatten() {
-        let p = entry.path();
-        if p.extension().and_then(|e| e.to_str()) != Some("lua") { continue; }
-
-        match parse_lua_tool(&p) {
-            Ok(t) => tools.push(t),
-            Err(e) => { eprintln!("failed to load lua tool from {}: {}", p.display(), e); }
-        }
-    }
-
-    tools
-}
-
 pub fn load_lua_tools_from_dirs(dirs: &[std::path::PathBuf]) -> Vec<LuaTool> {
     let mut out = Vec::new();
     for d in dirs {
@@ -244,7 +225,9 @@ fn parse_lua_tool(path: &Path) -> Result<LuaTool, String> {
         .eval::<LuaValue>()
         .map_err(|e| format!("eval error: {e}"))?;
 
-    let tbl = match value { LuaValue::Table(t) => t, _ => return Err("script must return a table".to_string()) };
+    let LuaValue::Table(tbl) = value else {
+        return Err("script must return a table".to_string());
+    };
 
     let name: String = tbl.get("name").map_err(|e| format!("missing name: {e}"))?;
     let description: String = tbl.get("description").unwrap_or_else(|_| "lua tool".to_string());

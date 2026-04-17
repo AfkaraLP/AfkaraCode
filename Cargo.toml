@@ -3,6 +3,10 @@ name = "afkaracode"
 version = "0.1.0"
 edition = "2024"
 
+[lints.clippy]
+pedantic = "warn"
+nursery = "warn"
+
 [dependencies]
 dotenvy = "0.15.7"
 openai-client = { git = "https://github.com/AfkaraLP/openai-client.git", version = "0.1.0" }

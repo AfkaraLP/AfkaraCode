@@ -66,7 +66,32 @@ async fn main() {
             messages.push(ChatCompletionMessageParam::new_user(prompt.clone()));
         }
 
-        let (resp, history) = client.run_agent(messages.clone(), &tools).await.unwrap();
+        let max_retries: u32 = 5;
+        let result = {
+            let mut attempt = 0u32;
+            loop {
+                match client.run_agent(messages.clone(), &tools).await {
+                    Ok(r) => break Some(r),
+                    Err(e) => {
+                        attempt += 1;
+                        if attempt >= max_retries {
+                            eprintln!("Failed after {max_retries} attempts: {e:?}");
+                            break None;
+                        }
+                        let delay_secs = 2u64.pow(attempt);
+                        eprintln!(
+                            "Request failed (attempt {attempt}/{max_retries}): {e:?}\nRetrying in {delay_secs}s..."
+                        );
+                        tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+                    }
+                }
+            }
+        };
+
+        let Some((resp, history)) = result else {
+            eprintln!("Skipping this turn due to repeated failures.");
+            continue;
+        };
 
         // Update history so the agent retains context
         messages = history;

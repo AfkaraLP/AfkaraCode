@@ -1,7 +1,8 @@
 use std::env;
 use std::fs;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 
+#[allow(dead_code)]
 pub struct XdgPaths {
     pub config_home: PathBuf,
     pub config_dirs: Vec<PathBuf>,
@@ -13,32 +14,40 @@ pub struct XdgPaths {
 }
 
 fn home_dir() -> PathBuf {
-    if let Ok(h) = env::var("HOME") { return PathBuf::from(h); }
-    if let Ok(h) = env::var("USERPROFILE") { return PathBuf::from(h); }
+    if let Ok(h) = env::var("HOME") {
+        return PathBuf::from(h);
+    }
+    if let Ok(h) = env::var("USERPROFILE") {
+        return PathBuf::from(h);
+    }
     env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
 pub fn xdg_paths() -> XdgPaths {
     let home = home_dir();
 
-    let config_home = env::var("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| home.join(".config"));
+    let config_home =
+        env::var("XDG_CONFIG_HOME").map_or_else(|_| home.join(".config"), PathBuf::from);
     let config_dirs = env::var("XDG_CONFIG_DIRS").unwrap_or_else(|_| "/etc/xdg".to_string());
-    let config_dirs: Vec<PathBuf> = config_dirs.split(':').filter(|s| !s.is_empty()).map(PathBuf::from).collect();
-
-    let data_home = env::var("XDG_DATA_HOME")
+    let config_dirs: Vec<PathBuf> = config_dirs
+        .split(':')
+        .filter(|s| !s.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|_| home.join(".local").join("share"));
-    let data_dirs = env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".to_string());
-    let data_dirs: Vec<PathBuf> = data_dirs.split(':').filter(|s| !s.is_empty()).map(PathBuf::from).collect();
+        .collect();
+
+    let data_home =
+        env::var("XDG_DATA_HOME").map_or_else(|_| home.join(".local").join("share"), PathBuf::from);
+    let data_dirs =
+        env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".to_string());
+    let data_dirs: Vec<PathBuf> = data_dirs
+        .split(':')
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .collect();
 
     let state_home = env::var("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| home.join(".local").join("state"));
-    let cache_home = env::var("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| home.join(".cache"));
+        .map_or_else(|_| home.join(".local").join("state"), PathBuf::from);
+    let cache_home = env::var("XDG_CACHE_HOME").map_or_else(|_| home.join(".cache"), PathBuf::from);
     let runtime_dir = env::var("XDG_RUNTIME_DIR").ok().map(PathBuf::from);
 
     XdgPaths {
@@ -81,7 +90,9 @@ pub fn plugin_dirs() -> Vec<PathBuf> {
     let x = xdg_paths();
     for d in x.config_dirs {
         let p = d.join("afkaracode").join("plugins");
-        if p.exists() { dirs.push(p); }
+        if p.exists() {
+            dirs.push(p);
+        }
     }
 
     dirs
