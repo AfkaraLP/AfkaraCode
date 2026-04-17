@@ -1,6 +1,6 @@
-use std::{path::Path, time::Duration, process::Command};
+use std::{path::Path, process::Command, time::Duration};
 
-use colored::{Color, Colorize};
+use colored::Colorize;
 use openai_client::{IntoPinBox, ToolCallArgDescriptor, ToolCallFn};
 use serde_json::Value;
 use similar::{ChangeTag, TextDiff};
@@ -11,10 +11,10 @@ use syntect::{
     util::{LinesWithEndings, as_24_bit_terminal_escaped},
 };
 
+use crate::config::load_config;
 use crate::utils::{
     create_file, edit_file, list_directory_contents, make_directory, read_file_with_range,
 };
-use crate::config::load_config;
 
 pub struct EditFile;
 pub struct ReadFile;
@@ -167,7 +167,9 @@ fn default_formatter_for_ext(ext: &str) -> Option<String> {
         // JavaScript/TypeScript and variants
         "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" => Some("prettier --write {file}".to_string()),
         // JSON, CSS, Markdown supported by Prettier too
-        "json" | "css" | "scss" | "md" | "markdown" | "yaml" | "yml" => Some("prettier --write {file}".to_string()),
+        "json" | "css" | "scss" | "md" | "markdown" | "yaml" | "yml" => {
+            Some("prettier --write {file}".to_string())
+        }
         // Python
         "py" => Some("ruff format {file}".to_string()),
         // Go
@@ -179,7 +181,10 @@ fn default_formatter_for_ext(ext: &str) -> Option<String> {
         // C/C++
         "c" | "h" | "cpp" | "cxx" | "hpp" => Some("clang-format -i {file}".to_string()),
         // Ruby
-        "rb" => Some("rubocop -x --only Layout/EndAlignment,Layout/SpaceInsideBlockBraces {file}".to_string()),
+        "rb" => Some(
+            "rubocop -x --only Layout/EndAlignment,Layout/SpaceInsideBlockBraces {file}"
+                .to_string(),
+        ),
         // PHP
         "php" => Some("php-cs-fixer fix {file}".to_string()),
         // Default: none
@@ -229,8 +234,6 @@ impl ToolCallFn for ReadFile {
         println!("reading file at path: {path} (offset={offset:?}, length={length:?})");
         match read_file_with_range(path.clone(), offset, length) {
             Ok(v) => {
-                // Do not output file contents; only report the path and basic metadata
-                println!("{}", "file contents suppressed".bold().truecolor(0, 188, 212));
                 let bytes = v.len();
                 format!(
                     "read file path: {path} (offset={offset:?}, length={length:?}, bytes_read={bytes})"
@@ -358,36 +361,15 @@ async fn run_bash_command(
         Ok(Ok(output)) => {
             let stdout_raw = String::from_utf8_lossy(&output.stdout).to_string();
             let stderr_raw = String::from_utf8_lossy(&output.stderr).to_string();
-            let stdout =
-                apply_filters(&stdout_raw, filter_for_re.as_ref(), filter_out_re.as_ref());
-            let stderr =
-                apply_filters(&stderr_raw, filter_for_re.as_ref(), filter_out_re.as_ref());
+            let stdout = apply_filters(&stdout_raw, filter_for_re.as_ref(), filter_out_re.as_ref());
+            let stderr = apply_filters(&stderr_raw, filter_for_re.as_ref(), filter_out_re.as_ref());
             let code = output.status.code().unwrap_or(-1);
-            let exit_color = if code == 0 { Color::Green } else { Color::Red };
-            println!(
-                "{} {} {} {}",
-                "completed:".bold().truecolor(76, 175, 80),
-                format_args!("{} {}", "exit_code".bold().color(exit_color), code),
-                format!("{} {}", "stdout_len:".bold().cyan(), stdout.len()).cyan(),
-                format!("{} {}", "stderr_len:".bold().cyan(), stderr.len()).cyan(),
-            );
-            // Pretty-print a preview of stdout/stderr with colors
-            if !stdout.is_empty() {
-                println!(
-                    "\n{}\n{}\n{}\n",
-                    "stdout:".bold().green(),
-                    stdout,
-                    "─".repeat(20).truecolor(60, 60, 60),
-                );
-            }
-            if !stderr.is_empty() {
-                println!(
-                    "\n{}\n{}\n{}\n",
-                    "stderr:".bold().red(),
-                    stderr,
-                    "─".repeat(20).truecolor(60, 60, 60),
-                );
-            }
+            let status_text = if code == 0 {
+                "completed".green()
+            } else {
+                "failed".red()
+            };
+            println!("{}", status_text.bold());
             serde_json::json!({
                 "exit_code": code,
                 "stdout": stdout,
@@ -490,13 +472,6 @@ impl ToolCallFn for BashExec {
             "cwd:".bold().yellow(),
             format!("{cwd:?}").italic().blue()
         );
-        println!("{} {}", "timeout_ms:".bold().yellow(), timeout_ms);
-        if let Some(ff) = &filter_for {
-            println!("{} {}", "filter_for:".bold().yellow(), ff);
-        }
-        if let Some(fo) = &filter_out {
-            println!("{} {}", "filter_out:".bold().yellow(), fo);
-        }
 
         Box::pin(run_bash_command(
             cmd.clone(),

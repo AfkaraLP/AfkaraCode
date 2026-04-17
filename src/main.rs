@@ -1,10 +1,10 @@
+mod config;
 mod env;
+mod lua;
 mod render;
 mod tools;
 mod utils;
-mod lua;
 mod xdg;
-mod config;
 
 use std::io::Write;
 
@@ -89,14 +89,13 @@ async fn main() {
 
         // Initialize with system + first user, then append subsequent user turns
         if messages.is_empty() {
-            let mut system_prompt = String::from("You are a coding agent. Don't edit files unless specifically instructed to. When reading files, prefer using the optional offset and length arguments on read_file to avoid reading the entire file unless necessary.");
+            let mut system_prompt = String::from(
+                "You are a coding agent. Don't edit files unless specifically instructed to. When reading files, prefer using the optional offset and length arguments on read_file to avoid reading the entire file unless necessary.",
+            );
             if let Some(extra) = workspace_extra_instructions() {
                 system_prompt.push_str(&extra);
             }
-            messages = new_system_user_turn(
-                &system_prompt,
-                prompt.clone(),
-            );
+            messages = new_system_user_turn(&system_prompt, prompt.clone());
         } else {
             messages.push(ChatCompletionMessageParam::new_user(prompt.clone()));
         }
@@ -132,7 +131,7 @@ async fn main() {
         messages = history;
 
         // Render agent response with Markdown code-fence syntax highlighting
-        let agent_header = "### 🤖 Agent".bold().truecolor(137, 207, 240);
+        let agent_header = "### Afkara Agent".bold().truecolor(137, 207, 240);
         let border = "────────────────────────────────────────────────".truecolor(80, 80, 80);
         let rendered = render_markdown_to_terminal(&resp.content.unwrap_or_default());
         println!("\n{agent_header}\n{border}\n{rendered}\n{border}\n");

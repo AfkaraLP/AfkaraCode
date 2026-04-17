@@ -49,7 +49,10 @@ fn merge_maps(
     }
 }
 
-fn merge_formatter(base: Option<FormatterConfig>, overlay: Option<FormatterConfig>) -> Option<FormatterConfig> {
+fn merge_formatter(
+    base: Option<FormatterConfig>,
+    overlay: Option<FormatterConfig>,
+) -> Option<FormatterConfig> {
     match (base, overlay) {
         (None, None) => None,
         (Some(b), None) => Some(b),
