@@ -38,12 +38,18 @@ fn workspace_extra_instructions() -> Option<String> {
 }
 
 use colored::Colorize;
+use crossterm::{
+    event::{self, Event, KeyCode},
+    terminal,
+};
 use openai_client::{
     ChatCompletionMessageParam, OpenAIAuth, OpenAIClient, ToolMap, new_system_user_turn,
 };
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Duration;
-use crossterm::{event::{self, Event, KeyCode}, terminal};
 
 use crate::env::ENV_VARS;
 use crate::render::render_markdown_to_terminal;
@@ -115,15 +121,12 @@ async fn main() {
                 let cancelled_thread = Arc::clone(&cancelled);
                 let running_thread = Arc::clone(&running);
 
+                // TODO: we got rid of raw mode for now as it messed up printing, escape handling has bad ux right now, fix
                 let esc_handle = std::thread::spawn(move || {
-                    let _ = terminal::enable_raw_mode();
-                    // Ensure we always disable raw mode when exiting this thread
-                    struct RawModeGuard;
-                    impl Drop for RawModeGuard { fn drop(&mut self) { let _ = terminal::disable_raw_mode(); } }
-                    let _guard = RawModeGuard;
-
                     loop {
-                        if !running_thread.load(Ordering::SeqCst) { break; }
+                        if !running_thread.load(Ordering::SeqCst) {
+                            break;
+                        }
                         if let Ok(true) = event::poll(StdDuration::from_millis(100)) {
                             if let Ok(Event::Key(key)) = event::read() {
                                 if key.code == KeyCode::Esc {
@@ -144,7 +147,10 @@ async fn main() {
                 };
 
                 let mut retry_delay: Option<u64> = None;
-                let outcome: Option<(openai_client::ChatCompletionResponseMessage, Vec<ChatCompletionMessageParam>)> = tokio::select! {
+                let outcome: Option<(
+                    openai_client::ChatCompletionResponseMessage,
+                    Vec<ChatCompletionMessageParam>,
+                )> = tokio::select! {
                     res = &mut fut => {
                         running.store(false, Ordering::SeqCst);
                         match res {
@@ -189,8 +195,8 @@ async fn main() {
 
                 // No result and no retry scheduled -> break with None
                 break outcome;
-                }
-            };
+            }
+        };
 
         if result.is_none() {
             if was_cancelled {
